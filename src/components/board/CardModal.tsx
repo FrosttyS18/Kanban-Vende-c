@@ -1,52 +1,29 @@
 import { createPortal } from "react-dom"
 import { useState, useRef, useEffect } from "react"
-import { X, Plus, Paperclip, Users, CheckSquare, Clock, CreditCard, Tag, AlignLeft, Send, MoreHorizontal, Image as ImageIcon, Pencil, ChevronLeft, Trash2, Monitor } from "lucide-react"
+import { X, Plus, Paperclip, Users, CheckSquare, Clock, AlignLeft, MoreHorizontal, Image as ImageIcon, Pencil, ChevronLeft, Trash2, Monitor, CheckCircle2, Circle, ChevronRight, GripVertical } from "lucide-react"
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { type Label, type Attachment, type Activity } from "@/types"
 
 type Props = {
   isOpen: boolean
   onClose: () => void
   hasCover?: boolean
   title?: string
+  initialDescription?: string
+  initialLabels?: Label[]
+  initialActivities?: Activity[]
+  initialAttachments?: Attachment[]
+  isCompleted?: boolean
+  dueDate?: string
+  availableLabels: Label[]
+  onUpdateAvailableLabels: (labels: Label[]) => void
+  members?: string[]
 }
-
-export type Label = {
-  id: string
-  text: string
-  color: string
-}
-
-export type Activity = {
-  id: string
-  user: string
-  userInitials: string
-  action: string
-  date: string
-  type: 'comment' | 'move'
-}
-
-export type Attachment = {
-  id: string
-  name: string
-  url: string
-  date: string
-  isCover: boolean
-}
-
-const GLOBAL_AVAILABLE_LABELS: Label[] = [
-    { id: 'l1', text: 'DOUGLAS', color: '#5ba4cf' },
-    { id: 'l2', text: 'WESLEY', color: '#7bc86c' },
-    { id: 'l3', text: '⚠ ⚠ ⚠ ⚠ ⚠ ⚠', color: '#519839' },
-    { id: 'l4', text: 'NÃO URGENTE', color: '#4bce97' },
-    { id: 'l5', text: 'WESLEY', color: '#d29034' },
-    { id: 'l6', text: 'ADRIANO', color: '#f5dd29' },
-    { id: 'l7', text: 'TIKTOK/SHORTS/WATCH', color: '#ffa515' },
-    { id: 'l8', text: 'FALTA COPY', color: '#b04632' },
-    { id: 'l9', text: 'URGENTE MESMO', color: '#89609e' },
-    { id: 'l10', text: '⚠ ⚠ AJUSTAR ⚠ ⚠', color: '#cd5a91' },
-]
 
 const LABEL_COLORS = [
     '#164b35', '#533f04', '#592e08', '#5c1209', '#422446',
@@ -56,46 +33,64 @@ const LABEL_COLORS = [
     '#60c6d2', '#6cd8fa', '#94c748', '#e774bb', '#8590a2'
 ]
 
-export const INITIAL_LABELS: Label[] = [
-  { id: 'l2', text: 'WESLEY', color: '#7bc86c' }
-]
+export const INITIAL_LABELS: Label[] = []
 
-export const INITIAL_ACTIVITIES: Activity[] = [
-  {
-    id: '1',
-    user: 'Social Media',
-    userInitials: 'SM',
-    action: 'moveu este cartão de EM APROVAÇÃO para APROVADOS',
-    date: '18 de dez. de 2025, 14:41',
-    type: 'move'
-  },
-  {
-    id: '2',
-    user: 'Design OFFI-C',
-    userInitials: 'DO',
-    action: 'moveu este cartão de NA FILA para EM APROVAÇÃO',
-    date: '16 de dez. de 2025, 15:09',
-    type: 'move'
-  }
-]
+export const INITIAL_ACTIVITIES: Activity[] = []
+
+// Sortable Attachment Item Component
+function SortableAttachmentItem({ attachment, onDelete }: { attachment: Attachment, onDelete: () => void }) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+    } = useSortable({ id: attachment.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+    };
+
+    return (
+        <div ref={setNodeRef} style={style} className="flex items-start gap-3 group bg-[#161a1d] p-2 rounded border border-transparent hover:border-white/5">
+            <div {...attributes} {...listeners} className="mt-8 cursor-grab text-muted-foreground hover:text-foreground">
+                <GripVertical className="size-4" />
+            </div>
+            <div className="h-20 w-28 bg-white/5 rounded overflow-hidden flex-shrink-0 border border-white/10">
+                 <img src={attachment.url} className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-medium text-foreground truncate">{attachment.name}</h4>
+                <p className="text-xs text-muted-foreground mt-1">Adicionado há {attachment.date} • {attachment.isCover && <span className="text-foreground/80">Capa</span>}</p>
+                <div className="flex items-center gap-3 mt-2">
+                    <button className="text-xs text-foreground/80 hover:underline">Comentar</button>
+                    <button onClick={onDelete} className="text-xs text-foreground/80 hover:underline">Excluir</button>
+                    <button className="text-xs text-foreground/80 hover:underline">Editar</button>
+                </div>
+            </div>
+            <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-muted-foreground">
+                <MoreHorizontal className="size-4" />
+            </button>
+        </div>
+    );
+}
 
 export default function CardModal({ 
     isOpen, 
     onClose, 
+    onUpdate,
     hasCover, 
     title,
     initialDescription = "",
     initialLabels = [],
     initialActivities = [],
-    initialDate,
-    initialAttachments = []
-}: Props & {
-    initialDescription?: string
-    initialLabels?: Label[]
-    initialActivities?: Activity[]
-    initialDate?: string
-    initialAttachments?: Attachment[]
-}) {
+    initialAttachments = [],
+    isCompleted: initialIsCompleted = false,
+    dueDate: initialDueDate,
+    availableLabels,
+    onUpdateAvailableLabels
+}: Props & { onUpdate?: (data: any) => void }) {
   const [description, setDescription] = useState(initialDescription)
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -103,16 +98,69 @@ export default function CardModal({
   const [commentText, setCommentText] = useState("")
   const [labels, setLabels] = useState<Label[]>(initialLabels)
   const [activities, setActivities] = useState<Activity[]>(initialActivities)
-  const [date, setDate] = useState(initialDate)
   const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments)
+  
+  // Date & Completion State
+  const [isCompleted, setIsCompleted] = useState(initialIsCompleted)
+  const [dueDate, setDueDate] = useState<Date | null>(initialDueDate ? new Date(initialDueDate) : null)
+  const [isDateMenuOpen, setIsDateMenuOpen] = useState(false)
+  const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date())
 
+  // DnD Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setAttachments((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        if (onUpdate) onUpdate({ attachments: newItems });
+        return newItems;
+      });
+    }
+  };
+
+  // Date Input Logic
+  const [dueDateStr, setDueDateStr] = useState("")
+  
+  useEffect(() => {
+    if (dueDate) setDueDateStr(dueDate.toLocaleDateString('pt-BR'))
+    else setDueDateStr("")
+  }, [dueDate])
+
+  const handleDueDateBlur = () => {
+    const parts = dueDateStr.replace(/[^0-9/]/g, '').split('/')
+    if (parts.length >= 2) {
+        const day = parseInt(parts[0])
+        const month = parseInt(parts[1]) - 1
+        const year = parts[2] ? (parts[2].length === 2 ? 2000 + parseInt(parts[2]) : parseInt(parts[2])) : new Date().getFullYear()
+        
+        const newDate = new Date(year, month, day)
+        if (!isNaN(newDate.getTime())) {
+            setDueDate(newDate)
+            setCurrentCalendarDate(newDate)
+            if (onUpdate) onUpdate({ dueDate: newDate.toISOString() })
+        }
+    }
+  }
+  
+  const dateButtonRef = useRef<HTMLButtonElement>(null)
+  const dateDisplayRef = useRef<HTMLDivElement>(null)
+  const dateMenuRef = useRef<HTMLDivElement>(null)
   
   // Label Menu state
   const [isLabelMenuOpen, setIsLabelMenuOpen] = useState(false)
   const [labelMenuMode, setLabelMenuMode] = useState<'list' | 'create' | 'edit'>('list')
   const [labelSearch, setLabelSearch] = useState("")
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 })
-  const [availableLabels, setAvailableLabels] = useState<Label[]>(GLOBAL_AVAILABLE_LABELS)
 
   // Attachment Menu state
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
@@ -163,6 +211,12 @@ export default function CardModal({
         window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isDragging])
+
+  const handleToggleCompleted = () => {
+      const newState = !isCompleted
+      setIsCompleted(newState)
+      if (onUpdate) onUpdate({ isCompleted: newState })
+  }
 
   const handleMouseDown = (e: React.MouseEvent) => {
       if (e.target instanceof Element && (e.target.closest('button') || e.target.closest('input'))) {
@@ -267,8 +321,18 @@ export default function CardModal({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
-          // Here we would handle the file upload
-          console.log("File selected:", e.target.files[0].name)
+          const newAttachments: Attachment[] = Array.from(e.target.files).map(file => ({
+              id: Date.now().toString() + Math.random().toString(),
+              name: file.name,
+              url: URL.createObjectURL(file), // Temporary URL for preview
+              date: new Date().toLocaleDateString('pt-BR'),
+              isCover: false
+          }))
+          
+          const updatedAttachments = [...attachments, ...newAttachments]
+          setAttachments(updatedAttachments)
+          if (onUpdate) onUpdate({ attachments: updatedAttachments })
+          
           setIsAttachmentMenuOpen(false)
       }
   }
@@ -282,8 +346,9 @@ export default function CardModal({
           color: createLabelColor
       }
       
-      GLOBAL_AVAILABLE_LABELS.push(newLabel)
-      setAvailableLabels([...GLOBAL_AVAILABLE_LABELS])
+      const newAvailableLabels = [...availableLabels, newLabel]
+      onUpdateAvailableLabels(newAvailableLabels)
+      
       setLabels([...labels, newLabel])
       setCreateLabelTitle("")
       setLabelMenuMode('list')
@@ -305,12 +370,9 @@ export default function CardModal({
           color: createLabelColor
       }
 
-      const index = GLOBAL_AVAILABLE_LABELS.findIndex(l => l.id === editingLabelId)
-      if (index !== -1) {
-          GLOBAL_AVAILABLE_LABELS[index] = updatedLabel
-      }
+      const newAvailableLabels = availableLabels.map(l => l.id === editingLabelId ? updatedLabel : l)
+      onUpdateAvailableLabels(newAvailableLabels)
 
-      setAvailableLabels([...GLOBAL_AVAILABLE_LABELS])
       setLabels(labels.map(l => l.id === editingLabelId ? updatedLabel : l))
       setLabelMenuMode('list')
       setEditingLabelId(null)
@@ -320,12 +382,9 @@ export default function CardModal({
   const handleDeleteLabel = () => {
       if (!editingLabelId) return
 
-      const index = GLOBAL_AVAILABLE_LABELS.findIndex(l => l.id === editingLabelId)
-      if (index !== -1) {
-          GLOBAL_AVAILABLE_LABELS.splice(index, 1)
-      }
+      const newAvailableLabels = availableLabels.filter(l => l.id !== editingLabelId)
+      onUpdateAvailableLabels(newAvailableLabels)
 
-      setAvailableLabels([...GLOBAL_AVAILABLE_LABELS])
       setLabels(labels.filter(l => l.id !== editingLabelId))
       setLabelMenuMode('list')
       setEditingLabelId(null)
@@ -354,13 +413,29 @@ export default function CardModal({
     setCommentText("")
   }
 
+  const handleTitleSubmit = () => {
+      setIsEditingTitle(false)
+      if (editedTitle !== title && onUpdate) {
+          onUpdate({ title: editedTitle })
+      }
+  }
+
+  const handleDeleteAttachment = (attachmentId: string) => {
+      const newAttachments = attachments.filter(a => a.id !== attachmentId)
+      setAttachments(newAttachments)
+      if (onUpdate) onUpdate({ attachments: newAttachments })
+  }
+
   const toggleLabel = (label: Label) => {
     const exists = labels.find(l => l.id === label.id)
+    let newLabels
     if (exists) {
-        setLabels(labels.filter(l => l.id !== label.id))
+        newLabels = labels.filter(l => l.id !== label.id)
     } else {
-        setLabels([...labels, label])
+        newLabels = [...labels, label]
     }
+    setLabels(newLabels)
+    if (onUpdate) onUpdate({ labels: newLabels })
   }
 
   const filteredLabels = availableLabels.filter(l => 
@@ -402,17 +477,22 @@ export default function CardModal({
                 
                 {/* Header Section */}
                 <div className="mb-8">
-                    <div className="flex items-start gap-4 mb-4">
-                        <CreditCard className="size-6 text-muted-foreground mt-1" />
+                    <div className="flex items-start gap-3 mb-4">
+                        <div 
+                            onClick={handleToggleCompleted}
+                            className={`mt-1 cursor-pointer transition-colors ${isCompleted ? 'text-green-500' : 'text-muted-foreground hover:text-foreground'}`}
+                        >
+                            {isCompleted ? <CheckCircle2 className="size-5" /> : <Circle className="size-5" />}
+                        </div>
                         <div className="flex-1">
                             {isEditingTitle ? (
                                 <Input
                                     autoFocus
                                     value={editedTitle}
                                     onChange={(e) => setEditedTitle(e.target.value)}
-                                    onBlur={() => setIsEditingTitle(false)}
+                                    onBlur={handleTitleSubmit}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter') setIsEditingTitle(false)
+                                        if (e.key === 'Enter') handleTitleSubmit()
                                     }}
                                     className="text-xl font-bold text-foreground mb-1 leading-tight h-auto py-1 px-2 bg-[#222] border-blue-500 rounded focus-visible:ring-0"
                                 />
@@ -438,7 +518,29 @@ export default function CardModal({
                          <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
                             <CheckSquare className="size-4" /> Checklist
                         </Button>
-                         <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
+                        <Button 
+                            ref={dateButtonRef}
+                            onClick={() => {
+                                if (dateButtonRef.current) {
+                                    const rect = dateButtonRef.current.getBoundingClientRect()
+                                    const popoverHeight = 500
+                                    const windowHeight = window.innerHeight
+                                    
+                                    let top = rect.bottom + 8
+                                    if (top + popoverHeight > windowHeight) {
+                                        top = rect.top - popoverHeight - 8
+                                    }
+                                    setPopoverPosition({ top, left: rect.left })
+                                }
+                                setIsDateMenuOpen(true)
+                            }}
+                            variant="outline" 
+                            size="sm" 
+                            className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8"
+                        >
+                            <Clock className="size-4" /> Datas
+                        </Button>
+                        <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
                             <Users className="size-4" /> Membros
                         </Button>
                         <Button 
@@ -776,16 +878,49 @@ export default function CardModal({
                                 </div>
                             </div>
                         </div>
-                        <div>
-                            <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Data Entrega</h3>
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded text-sm text-foreground hover:bg-white/10 cursor-pointer transition-colors">
-                                    <Clock className="size-4 text-muted-foreground" />
-                                    <span>6 de jan., 13:07</span>
-                                    <span className="bg-[#bbf7d0] text-green-900 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1">Concluído</span>
+                        {dueDate && (
+                            <div>
+                                <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Data Entrega</h3>
+                                <div className="flex items-center gap-2">
+                                    <div 
+                                        ref={dateDisplayRef}
+                                        onClick={() => {
+                                            if (dateDisplayRef.current) {
+                                                const rect = dateDisplayRef.current.getBoundingClientRect()
+                                                setPopoverPosition({ top: rect.bottom + 8, left: rect.left })
+                                            }
+                                            setIsDateMenuOpen(true)
+                                        }}
+                                        className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded text-sm text-foreground hover:bg-white/10 cursor-pointer transition-colors"
+                                    >
+                                        <div onClick={(e) => {
+                                            e.stopPropagation()
+                                            setIsCompleted(!isCompleted)
+                                        }} className={`size-4 border rounded-sm flex items-center justify-center mr-1 ${isCompleted ? 'bg-green-500 border-green-500 text-black' : 'border-muted-foreground hover:border-foreground'}`}>
+                                            {isCompleted && <CheckSquare className="size-3" />}
+                                        </div>
+                                        
+                                        <span>
+                                            {dueDate.getDate()} de {dueDate.toLocaleString('pt-BR', { month: 'short' })}
+                                            {dueDate.getHours() !== 0 && `, ${dueDate.getHours().toString().padStart(2, '0')}:${dueDate.getMinutes().toString().padStart(2, '0')}`}
+                                        </span>
+                                        
+                                        {isCompleted ? (
+                                            <span className="bg-[#bbf7d0] text-green-900 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Concluído</span>
+                                        ) : (
+                                            new Date() > dueDate ? (
+                                                <span className="bg-red-900/50 text-red-200 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Atrasado</span>
+                                            ) : (
+                                                (dueDate.getTime() - new Date().getTime()) < 48 * 60 * 60 * 1000 && ( // 48h warning
+                                                    <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Entregar em breve</span>
+                                                )
+                                            )
+                                        )}
+                                        <ChevronRight className="size-3 text-muted-foreground ml-1" />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
                     </div>
 
                     {/* Description */}
@@ -846,27 +981,27 @@ export default function CardModal({
                                 </div>
                                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground hover:text-foreground">Adicionar</Button>
                             </div>
-                            <div className="space-y-3">
-                                {attachments.map(att => (
-                                    <div key={att.id} className="flex items-start gap-3 group">
-                                        <div className="h-20 w-28 bg-white/5 rounded overflow-hidden flex-shrink-0 border border-white/10">
-                                             <img src={att.url} className="w-full h-full object-cover" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="text-sm font-medium text-foreground truncate">{att.name}</h4>
-                                            <p className="text-xs text-muted-foreground mt-1">Adicionado há {att.date} • {att.isCover && <span className="text-foreground/80">Capa</span>}</p>
-                                            <div className="flex items-center gap-3 mt-2">
-                                                <button className="text-xs text-foreground/80 hover:underline">Comentar</button>
-                                                <button className="text-xs text-foreground/80 hover:underline">Excluir</button>
-                                                <button className="text-xs text-foreground/80 hover:underline">Editar</button>
-                                            </div>
-                                        </div>
-                                        <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-muted-foreground">
-                                            <MoreHorizontal className="size-4" />
-                                        </button>
+                            
+                            <DndContext 
+                                sensors={sensors} 
+                                collisionDetection={closestCenter} 
+                                onDragEnd={handleDragEnd}
+                            >
+                                <SortableContext 
+                                    items={attachments.map(a => a.id)} 
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    <div className="space-y-3">
+                                        {attachments.map(att => (
+                                            <SortableAttachmentItem 
+                                                key={att.id} 
+                                                attachment={att} 
+                                                onDelete={() => handleDeleteAttachment(att.id)} 
+                                            />
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                </SortableContext>
+                            </DndContext>
                         </div>
                     )}
                 </div>
@@ -874,7 +1009,7 @@ export default function CardModal({
 
             {/* Sidebar (Right) - Activity & Comments */}
             <div className="w-full md:w-96 bg-[#161616] border-l border-white/10 flex flex-col">
-                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#161616]">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#161616] pr-12">
                     <h3 className="font-semibold text-foreground flex items-center gap-2">
                         <AlignLeft className="size-4" /> Comentários e atividade
                     </h3>
@@ -942,6 +1077,165 @@ export default function CardModal({
                 </div>
             </div>
         </div>
+        
+        {/* Date Picker Popover */}
+        {isDateMenuOpen && createPortal(
+            <div 
+                ref={dateMenuRef}
+                style={{ 
+                    top: popoverPosition.top, 
+                    left: popoverPosition.left,
+                    position: 'fixed'
+                }}
+                className="w-[304px] bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-[10000] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between p-3 border-b border-white/10">
+                    <div className="size-8" />
+                    <span className="text-sm font-semibold text-gray-300">Datas</span>
+                    <button 
+                        onClick={() => setIsDateMenuOpen(false)}
+                        className="size-8 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
+                    >
+                        <X className="size-4" />
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-3">
+                    {/* Calendar Header */}
+                    <div className="flex items-center justify-between mb-4 px-1">
+                        <button 
+                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1)))}
+                            className="size-6 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
+                        >
+                            <ChevronLeft className="size-4" />
+                        </button>
+                        <span className="text-sm font-medium text-white capitalize">
+                            {currentCalendarDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </span>
+                        <button 
+                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1)))}
+                            className="size-6 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
+                        >
+                            <ChevronRight className="size-4" />
+                        </button>
+                    </div>
+
+                    {/* Calendar Grid */}
+                    <div className="grid grid-cols-7 gap-1 mb-4 text-center">
+                        {['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'].map(d => (
+                            <div key={d} className="text-[10px] text-gray-500 font-medium uppercase">{d}</div>
+                        ))}
+                        {(() => {
+                            const days = []
+                            const firstDay = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 1).getDay()
+                            const daysInMonth = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 0).getDate()
+                            const prevMonthDays = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 0).getDate()
+                            
+                            // Prev Month Padding
+                            for (let i = 0; i < firstDay; i++) {
+                                days.push(<div key={`prev-${i}`} className="h-8 flex items-center justify-center text-sm text-gray-600">{prevMonthDays - firstDay + i + 1}</div>)
+                            }
+                            
+                            // Current Month
+                            for (let i = 1; i <= daysInMonth; i++) {
+                                const date = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), i)
+                                const isSelected = dueDate && date.toDateString() === dueDate.toDateString()
+                                const isToday = new Date().toDateString() === date.toDateString()
+                                
+                                days.push(
+                                    <div 
+                                        key={i} 
+                                        onClick={() => {
+                                            setDueDate(date)
+                                            if (onUpdate) onUpdate({ dueDate: date.toISOString() })
+                                        }}
+                                        className={`h-8 flex items-center justify-center text-sm rounded cursor-pointer hover:bg-white/10 
+                                            ${isSelected ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-300'}
+                                            ${isToday && !isSelected ? 'text-blue-400 font-bold' : ''}
+                                        `}
+                                    >
+                                        {i}
+                                    </div>
+                                )
+                            }
+                            
+                            return days
+                        })()}
+                    </div>
+
+                    {/* Inputs */}
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Data de início</label>
+                            <div className="flex gap-2">
+                                <div className="size-4 border border-white/20 rounded mt-2.5"></div>
+                                <Input 
+                                    placeholder="D/M/AAAA" 
+                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
+                                    disabled
+                                />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Data de entrega</label>
+                            <div className="flex gap-2">
+                                <div className="mt-2.5">
+                                    <CheckSquare className="size-4 text-blue-500" />
+                                </div>
+                                <Input 
+                                    value={dueDateStr}
+                                    onChange={(e) => setDueDateStr(e.target.value)}
+                                    onBlur={handleDueDateBlur}
+                                    placeholder="DD/MM/AAAA"
+                                    className="bg-[#22272b] border-white/20 text-white h-9 flex-1"
+                                />
+                                <Input 
+                                    defaultValue="12:00"
+                                    className="bg-[#22272b] border-white/20 text-white h-9 w-20"
+                                />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Definir lembrete</label>
+                            <select className="w-full bg-[#22272b] border border-white/20 text-white h-9 rounded px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <option>1 dia antes</option>
+                                <option>2 dias antes</option>
+                                <option>1 hora antes</option>
+                            </select>
+                        </div>
+                        
+                        <p className="text-xs text-gray-500 mt-2">
+                            Lembretes serão enviados a todos os membros e seguidores deste cartão.
+                        </p>
+                        
+                        <div className="pt-2 space-y-2">
+                            <Button 
+                                onClick={() => setIsDateMenuOpen(false)}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white h-9"
+                            >
+                                Salvar
+                            </Button>
+                            <Button 
+                                onClick={() => {
+                                    setDueDate(null)
+                                    setIsDateMenuOpen(false)
+                                    if (onUpdate) onUpdate({ dueDate: null })
+                                }}
+                                variant="secondary" 
+                                className="w-full bg-white/5 hover:bg-white/10 text-white border-none h-9"
+                            >
+                                Remover
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        )}
       </div>
     </div>,
     document.body

@@ -1,7 +1,12 @@
 import { Button } from "@/components/ui/button"
 import { LayoutDashboard, Star, Archive, Settings, Plus } from "lucide-react"
 
-export default function Sidebar() {
+interface SidebarProps {
+  currentView?: 'board' | 'archived'
+  onNavigate?: (view: 'board' | 'archived') => void
+}
+
+export default function Sidebar({ currentView = 'board', onNavigate }: SidebarProps) {
   return (
     <aside className="hidden w-64 border-r border-white/10 bg-black/20 backdrop-blur-sm p-3 md:flex md:flex-col gap-4">
       <div className="px-2 py-1">
@@ -10,7 +15,11 @@ export default function Sidebar() {
           <Plus className="size-3 cursor-pointer hover:text-foreground" />
         </div>
         <div className="grid gap-1">
-          <Button variant="secondary" className="justify-start gap-2 bg-white/10 text-foreground hover:bg-white/20 border-none font-medium h-9">
+          <Button 
+            onClick={() => onNavigate?.('board')}
+            variant={currentView === 'board' ? "secondary" : "ghost"} 
+            className={`justify-start gap-2 h-9 font-medium ${currentView === 'board' ? 'bg-white/10 text-foreground hover:bg-white/20 border-none' : 'text-foreground/70 hover:text-foreground hover:bg-white/10'}`}
+          >
             <LayoutDashboard className="size-4" />
             Vende-C Projeto
           </Button>
@@ -18,7 +27,11 @@ export default function Sidebar() {
             <Star className="size-4" />
             Destaques
           </Button>
-          <Button variant="ghost" className="justify-start gap-2 text-foreground/70 hover:text-foreground hover:bg-white/10 h-9">
+          <Button 
+            onClick={() => onNavigate?.('archived')}
+            variant={currentView === 'archived' ? "secondary" : "ghost"}
+            className={`justify-start gap-2 h-9 font-medium ${currentView === 'archived' ? 'bg-white/10 text-foreground hover:bg-white/20 border-none' : 'text-foreground/70 hover:text-foreground hover:bg-white/10'}`}
+          >
             <Archive className="size-4" />
             Arquivados
           </Button>
