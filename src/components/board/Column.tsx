@@ -291,6 +291,7 @@ export default function Column({
                     dueDate={card.dueDate}
                     members={card.members}
                     isCompleted={card.isCompleted}
+                    attachments={card.attachments}
                     onUpdate={onUpdateCard}
                     onDelete={onDeleteCard}
                     availableLabels={availableLabels}

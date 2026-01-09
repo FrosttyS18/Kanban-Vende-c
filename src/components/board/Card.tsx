@@ -185,6 +185,7 @@ export default function Card({
           initialLabels={labels}
           dueDate={dueDate}
           isCompleted={isCompleted}
+          initialAttachments={attachments}
           availableLabels={availableLabels}
           onUpdateAvailableLabels={onUpdateAvailableLabels}
           members={members}

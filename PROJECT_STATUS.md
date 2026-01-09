@@ -66,6 +66,8 @@ O projeto passou por uma refatoração significativa para atingir um nível "Sê
 ---
 
 ## 🛠️ Detalhes Técnicos Recentes (Fixes)
+- **Persistência de Anexos**: Migração de `URL.createObjectURL` (temporário) para `FileReader` (Base64) para garantir que imagens sejam salvas.
+- **Funcionalidade "Tornar Capa"**: Adicionada lógica para marcar um anexo como capa e refletir isso visualmente no card.
 - **Fix de Persistência**: Adicionados `useEffect` no `Board.tsx` para salvar estado no `localStorage`.
 - **Fix de Imports**: Correção de `import type` para compatibilidade com novos padrões de build.
 - **Limpeza de Código**: Remoção de variáveis não utilizadas (`members`, `Trash2`) e props mortas (`onArchiveCard` legado).

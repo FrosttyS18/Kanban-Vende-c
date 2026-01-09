@@ -321,19 +321,47 @@ export default function CardModal({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
-          const newAttachments: Attachment[] = Array.from(e.target.files).map(file => ({
-              id: Date.now().toString() + Math.random().toString(),
-              name: file.name,
-              url: URL.createObjectURL(file), // Temporary URL for preview
-              date: new Date().toLocaleDateString('pt-BR'),
-              isCover: false
-          }))
+          const files = Array.from(e.target.files)
           
-          const updatedAttachments = [...attachments, ...newAttachments]
-          setAttachments(updatedAttachments)
-          if (onUpdate) onUpdate({ attachments: updatedAttachments })
+          files.forEach(file => {
+              const reader = new FileReader()
+              reader.onloadend = () => {
+                  const base64String = reader.result as string
+                  const newAttachment: Attachment = {
+                      id: Date.now().toString() + Math.random().toString(),
+                      name: file.name,
+                      url: base64String, // Persistent Data URL
+                      date: new Date().toLocaleDateString('pt-BR'),
+                      isCover: false
+                  }
+                  
+                  setAttachments(prev => {
+                      const updated = [...prev, newAttachment]
+                      if (onUpdate) onUpdate({ attachments: updated })
+                      return updated
+                  })
+              }
+              reader.readAsDataURL(file)
+          })
           
           setIsAttachmentMenuOpen(false)
+      }
+  }
+
+  const handleMakeCover = (attachmentId: string) => {
+      const newAttachments = attachments.map(a => ({
+          ...a,
+          isCover: a.id === attachmentId ? !a.isCover : false
+      }))
+      
+      const hasCover = newAttachments.some(a => a.isCover)
+      
+      setAttachments(newAttachments)
+      if (onUpdate) {
+          onUpdate({ 
+              attachments: newAttachments,
+              cover: hasCover // Update the card's cover status
+          })
       }
   }
 
@@ -997,6 +1025,7 @@ export default function CardModal({
                                                 key={att.id} 
                                                 attachment={att} 
                                                 onDelete={() => handleDeleteAttachment(att.id)} 
+                                                onMakeCover={() => handleMakeCover(att.id)}
                                             />
                                         ))}
                                     </div>
