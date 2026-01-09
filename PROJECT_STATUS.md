@@ -55,6 +55,7 @@ O projeto passou por uma refatoração significativa para atingir um nível "Sê
 ## 🚧 O que Falta (Pendências)
 
 #### 1. Funcionalidades de Arquivamento
+- [x] **Arquivar Cartões**: Lógica de arquivamento implementada e funcional. Cartões arquivados vão para a página "Arquivos" e são persistidos.
 - [ ] **Restaurar Cartões Arquivados**: A lógica de arquivar existe, mas a interface para restaurar cartões da tela de "Arquivos" para o board principal precisa ser verificada/reimplementada se necessário.
 - [ ] **Arquivar vs Excluir**: Clarificar na UI a diferença entre "Excluir para sempre" e "Arquivar".
 

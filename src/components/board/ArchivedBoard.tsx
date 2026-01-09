@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react"
 import { Archive } from "lucide-react"
 import Card from "@/components/board/Card"
-import { type Label } from "@/types"
+import { type Label, type Attachment } from "@/types"
 
 interface ArchivedCard {
-  id: number
+  id: string
   title: string
   labels: Label[]
   cover: boolean
+  attachments?: Attachment[]
   archivedAt: string
   originalColumn: string
 }
@@ -85,6 +86,7 @@ export default function ArchivedBoard() {
                       title={card.title}
                       cover={card.cover}
                       labels={card.labels}
+                      attachments={card.attachments || []}
                       onDelete={handleDeleteForever}
                       availableLabels={[]}
                       onUpdateAvailableLabels={() => {}}

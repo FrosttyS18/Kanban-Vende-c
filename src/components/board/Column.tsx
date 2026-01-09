@@ -16,6 +16,7 @@ type Props = {
   onAddCard: (columnId: string, title: string) => void
   onUpdateCard: (id: number | string, data: Partial<CardData>) => void
   onDeleteCard: (id: number | string) => void
+  onArchiveCard: (id: number | string) => void
   availableLabels: Label[]
   onUpdateAvailableLabels: (labels: Label[]) => void
 }
@@ -75,6 +76,7 @@ export default function Column({
     onAddCard, 
     onUpdateCard, 
     onDeleteCard, 
+    onArchiveCard,
     availableLabels,
     onUpdateAvailableLabels
 }: Props) {
@@ -294,6 +296,7 @@ export default function Column({
                     attachments={card.attachments}
                     onUpdate={onUpdateCard}
                     onDelete={onDeleteCard}
+                    onArchive={onArchiveCard}
                     availableLabels={availableLabels}
                     onUpdateAvailableLabels={onUpdateAvailableLabels}
                 />

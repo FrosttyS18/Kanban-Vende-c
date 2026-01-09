@@ -5,7 +5,7 @@ import CardModal from "./CardModal"
 import { Button } from "@/components/ui/button"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { type Label } from "@/types"
+import { type Label, type Attachment } from "@/types"
 
 type Props = {
   id: number | string
@@ -15,6 +15,7 @@ type Props = {
   dueDate?: string
   members?: string[]
   isCompleted?: boolean
+  attachments?: Attachment[]
   onDelete?: (id: number | string) => void
   onArchive?: (id: number | string) => void
   onUpdate?: (id: number | string, data: any) => void
@@ -30,7 +31,8 @@ export default function Card({
     labels = [], 
     dueDate, 
     members = [], 
-    isCompleted, 
+    isCompleted,
+    attachments = [],
     onDelete, 
     onArchive, 
     onUpdate,
@@ -39,6 +41,7 @@ export default function Card({
     isOverlay 
 }: Props) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [openWithPreview, setOpenWithPreview] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null)
   const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -112,7 +115,31 @@ export default function Card({
         className="group relative flex flex-col rounded-md bg-card text-sm shadow-sm ring-1 ring-white/5 hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer overflow-hidden bg-[#22272b]"
       >
         {/* Edge-to-Edge Cover Image */}
-        {cover && <div className="h-32 w-full bg-muted/50 bg-[url('https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=270&auto=format&fit=crop')] bg-cover bg-center" />}
+        {cover && (
+            <div 
+                className="relative h-48 w-full overflow-hidden rounded-t-md group z-0"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setOpenWithPreview(true)
+                    setIsModalOpen(true)
+                }}
+            >
+                {/* Blurred Background for predominant color effect */}
+                <div 
+                    className="absolute inset-0 bg-cover bg-center blur-xl opacity-50 scale-125" 
+                    style={{ 
+                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url || "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=270&auto=format&fit=crop"}')` 
+                    }}
+                />
+                {/* Main Image */}
+                <div 
+                    className="absolute inset-0 bg-contain bg-center bg-no-repeat z-10 transition-transform group-hover:scale-105 duration-500"
+                    style={{ 
+                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url || "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=270&auto=format&fit=crop"}')` 
+                    }}
+                />
+            </div>
+        )}
         
         <div className="p-3 flex flex-col gap-2">
           {/* Labels */}
@@ -178,7 +205,10 @@ export default function Card({
       {isModalOpen && !isOverlay && (
         <CardModal 
           isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)} 
+          onClose={() => {
+            setIsModalOpen(false)
+            setOpenWithPreview(false)
+          }}
           onUpdate={(data) => onUpdate && onUpdate(id, data)}
           hasCover={cover}
           title={title}
@@ -186,6 +216,7 @@ export default function Card({
           dueDate={dueDate}
           isCompleted={isCompleted}
           initialAttachments={attachments}
+          initialLightboxOpen={openWithPreview}
           availableLabels={availableLabels}
           onUpdateAvailableLabels={onUpdateAvailableLabels}
           members={members}

@@ -117,6 +117,27 @@ export default function Board() {
     setCards(prev => prev.filter(card => card.id !== id))
   }
 
+  const handleArchiveCard = (id: number | string) => {
+    const cardToArchive = cards.find(c => c.id === id)
+    if (!cardToArchive) return
+
+    // Add to archived storage
+    const archived = localStorage.getItem('archived_cards')
+    const archivedCards = archived ? JSON.parse(archived) : []
+    
+    // Add metadata for when/where it was archived
+    const archiveRecord = {
+        ...cardToArchive,
+        archivedAt: new Date().toISOString(),
+        originalColumn: columns.find(c => c.id === cardToArchive.columnId)?.title || "Unknown"
+    }
+    
+    localStorage.setItem('archived_cards', JSON.stringify([...archivedCards, archiveRecord]))
+    
+    // Remove from active board
+    setCards(prev => prev.filter(c => c.id !== id))
+  }
+
   // Label Management
   const handleUpdateAvailableLabels = (newLabels: Label[]) => {
       setAvailableLabels(newLabels)
@@ -225,6 +246,7 @@ export default function Board() {
                                 onAddCard={handleAddCard}
                                 onUpdateCard={handleUpdateCard}
                                 onDeleteCard={handleDeleteCard}
+                                onArchiveCard={handleArchiveCard}
                                 availableLabels={availableLabels}
                                 onUpdateAvailableLabels={handleUpdateAvailableLabels}
                             />
@@ -288,13 +310,21 @@ export default function Board() {
                             onAddCard={() => {}}
                             onUpdateCard={() => {}}
                             onDeleteCard={() => {}}
+                            onArchiveCard={() => {}}
                             availableLabels={availableLabels}
                             onUpdateAvailableLabels={() => {}}
                         />
                     )}
                     {activeCard && (
                          <Card
-                            {...activeCard}
+                            id={activeCard.id}
+                            title={activeCard.title}
+                            cover={activeCard.cover}
+                            labels={activeCard.labels}
+                            dueDate={activeCard.dueDate}
+                            members={activeCard.members}
+                            isCompleted={activeCard.isCompleted}
+                            attachments={activeCard.attachments}
                             availableLabels={availableLabels}
                             onUpdateAvailableLabels={() => {}}
                             isOverlay

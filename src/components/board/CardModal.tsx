@@ -5,6 +5,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import ImageLightbox from "./ImageLightbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Label, type Attachment, type Activity } from "@/types"
@@ -18,6 +19,7 @@ type Props = {
   initialLabels?: Label[]
   initialActivities?: Activity[]
   initialAttachments?: Attachment[]
+  initialLightboxOpen?: boolean
   isCompleted?: boolean
   dueDate?: string
   availableLabels: Label[]
@@ -38,7 +40,17 @@ export const INITIAL_LABELS: Label[] = []
 export const INITIAL_ACTIVITIES: Activity[] = []
 
 // Sortable Attachment Item Component
-function SortableAttachmentItem({ attachment, onDelete }: { attachment: Attachment, onDelete: () => void }) {
+function SortableAttachmentItem({ 
+    attachment, 
+    onDelete, 
+    onMakeCover,
+    onView
+}: { 
+    attachment: Attachment, 
+    onDelete: () => void, 
+    onMakeCover: () => void,
+    onView: () => void
+}) {
     const {
         attributes,
         listeners,
@@ -57,16 +69,26 @@ function SortableAttachmentItem({ attachment, onDelete }: { attachment: Attachme
             <div {...attributes} {...listeners} className="mt-8 cursor-grab text-muted-foreground hover:text-foreground">
                 <GripVertical className="size-4" />
             </div>
-            <div className="h-20 w-28 bg-white/5 rounded overflow-hidden flex-shrink-0 border border-white/10">
+            <div 
+                className="h-20 w-28 bg-white/5 rounded overflow-hidden flex-shrink-0 border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={onView}
+            >
                  <img src={attachment.url} className="w-full h-full object-cover" />
             </div>
             <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-foreground truncate">{attachment.name}</h4>
+                <h4 
+                    className="text-sm font-medium text-foreground truncate cursor-pointer hover:underline"
+                    onClick={onView}
+                >
+                    {attachment.name}
+                </h4>
                 <p className="text-xs text-muted-foreground mt-1">Adicionado há {attachment.date} • {attachment.isCover && <span className="text-foreground/80">Capa</span>}</p>
                 <div className="flex items-center gap-3 mt-2">
                     <button className="text-xs text-foreground/80 hover:underline">Comentar</button>
                     <button onClick={onDelete} className="text-xs text-foreground/80 hover:underline">Excluir</button>
-                    <button className="text-xs text-foreground/80 hover:underline">Editar</button>
+                    <button onClick={onMakeCover} className="text-xs text-foreground/80 hover:underline">
+                        {attachment.isCover ? "Remover Capa" : "Tornar Capa"}
+                    </button>
                 </div>
             </div>
             <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-muted-foreground">
@@ -86,12 +108,14 @@ export default function CardModal({
     initialLabels = [],
     initialActivities = [],
     initialAttachments = [],
+    initialLightboxOpen = false,
     isCompleted: initialIsCompleted = false,
     dueDate: initialDueDate,
     availableLabels,
     onUpdateAvailableLabels
 }: Props & { onUpdate?: (data: any) => void }) {
   const [description, setDescription] = useState(initialDescription)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(title || "")
@@ -105,6 +129,13 @@ export default function CardModal({
   const [dueDate, setDueDate] = useState<Date | null>(initialDueDate ? new Date(initialDueDate) : null)
   const [isDateMenuOpen, setIsDateMenuOpen] = useState(false)
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date())
+
+  useEffect(() => {
+      if (initialLightboxOpen && attachments.length > 0) {
+          const coverIndex = attachments.findIndex(a => a.isCover)
+          setLightboxIndex(coverIndex >= 0 ? coverIndex : 0)
+      }
+  }, [initialLightboxOpen])
 
   // DnD Sensors
   const sensors = useSensors(
@@ -167,7 +198,7 @@ export default function CardModal({
   const attachmentButtonRef = useRef<HTMLButtonElement>(null)
   const attachmentMenuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
+  
   // Dragging state for Label Menu
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef({ x: 0, y: 0 })
@@ -322,7 +353,9 @@ export default function CardModal({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
           const files = Array.from(e.target.files)
-          
+          const newAttachments: Attachment[] = []
+          let processedCount = 0
+
           files.forEach(file => {
               const reader = new FileReader()
               reader.onloadend = () => {
@@ -334,12 +367,16 @@ export default function CardModal({
                       date: new Date().toLocaleDateString('pt-BR'),
                       isCover: false
                   }
-                  
-                  setAttachments(prev => {
-                      const updated = [...prev, newAttachment]
-                      if (onUpdate) onUpdate({ attachments: updated })
-                      return updated
-                  })
+                  newAttachments.push(newAttachment)
+                  processedCount++
+
+                  if (processedCount === files.length) {
+                      setAttachments(prev => {
+                          const updated = [...prev, ...newAttachments]
+                          if (onUpdate) onUpdate({ attachments: updated })
+                          return updated
+                      })
+                  }
               }
               reader.readAsDataURL(file)
           })
@@ -470,6 +507,9 @@ export default function CardModal({
     l.text.toLowerCase().includes(labelSearch.toLowerCase())
   )
 
+  const coverAttachment = attachments.find(a => a.isCover)
+  const coverUrl = coverAttachment ? coverAttachment.url : (hasCover && attachments.length === 0 ? "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=1000&auto=format&fit=crop" : null)
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
       <div 
@@ -480,9 +520,22 @@ export default function CardModal({
       <div className="relative z-10 w-full max-w-5xl rounded-xl bg-[#1e1e1e] shadow-2xl ring-1 ring-white/10 flex flex-col overflow-hidden max-h-[90vh]">
         
         {/* Cover Image */}
-        {hasCover && (
-          <div className="h-60 w-full bg-[url('https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center relative group">
-             <div className="absolute top-4 right-14 flex gap-2">
+        {coverUrl && (
+          <div className="relative w-full h-64 bg-[#161a1d] group flex items-center justify-center overflow-hidden">
+             {/* Blurred Background */}
+             <div 
+                className="absolute inset-0 bg-cover bg-center opacity-40 blur-2xl scale-125"
+                style={{ backgroundImage: `url('${coverUrl}')` }}
+             />
+             
+             {/* Main Image */}
+             <img 
+                src={coverUrl} 
+                alt="Cover" 
+                className="relative h-full w-full object-contain z-10 transition-transform duration-200"
+             />
+
+             <div className="absolute top-4 right-14 flex gap-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button variant="secondary" size="sm" className="bg-black/50 hover:bg-black/70 text-white border-none gap-2">
                     <ImageIcon className="size-4" />
                     Capa
@@ -585,6 +638,7 @@ export default function CardModal({
                             ref={fileInputRef} 
                             className="hidden" 
                             onChange={handleFileChange}
+                            multiple
                         />
                     </div>
 
@@ -1026,6 +1080,10 @@ export default function CardModal({
                                                 attachment={att} 
                                                 onDelete={() => handleDeleteAttachment(att.id)} 
                                                 onMakeCover={() => handleMakeCover(att.id)}
+                                                onView={() => {
+                                                    const idx = attachments.findIndex(a => a.id === att.id)
+                                                    setLightboxIndex(idx)
+                                                }}
                                             />
                                         ))}
                                     </div>
@@ -1265,6 +1323,16 @@ export default function CardModal({
             </div>,
             document.body
         )}
+
+        {/* Lightbox Overlay */}
+        <ImageLightbox 
+            images={attachments}
+            initialIndex={lightboxIndex ?? 0}
+            isOpen={lightboxIndex !== null}
+            onClose={() => setLightboxIndex(null)}
+            onMakeCover={handleMakeCover}
+            onDelete={handleDeleteAttachment}
+        />
       </div>
     </div>,
     document.body
