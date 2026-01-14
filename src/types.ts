@@ -10,6 +10,7 @@ export interface Attachment {
   url: string
   date: string
   isCover: boolean
+  dominantColor?: string
 }
 
 export interface Activity {

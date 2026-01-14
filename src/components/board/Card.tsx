@@ -117,25 +117,21 @@ export default function Card({
         {/* Edge-to-Edge Cover Image */}
         {cover && (
             <div 
-                className="relative h-48 w-full overflow-hidden rounded-t-md group z-0"
+                className="relative h-48 w-full overflow-hidden rounded-t-md group z-0 transition-colors duration-300"
+                style={{
+                    backgroundColor: attachments.find(a => a.isCover)?.dominantColor || '#22272b'
+                }}
                 onClick={(e) => {
                     e.stopPropagation()
                     setOpenWithPreview(true)
                     setIsModalOpen(true)
                 }}
             >
-                {/* Blurred Background for predominant color effect */}
-                <div 
-                    className="absolute inset-0 bg-cover bg-center blur-xl opacity-50 scale-125" 
-                    style={{ 
-                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url || "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=270&auto=format&fit=crop"}')` 
-                    }}
-                />
                 {/* Main Image */}
                 <div 
                     className="absolute inset-0 bg-contain bg-center bg-no-repeat z-10 transition-transform group-hover:scale-105 duration-500"
                     style={{ 
-                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url || "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=270&auto=format&fit=crop"}')` 
+                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url}')` 
                     }}
                 />
             </div>

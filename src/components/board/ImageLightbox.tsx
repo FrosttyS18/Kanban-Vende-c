@@ -1,4 +1,4 @@
-import { X, ChevronLeft, ChevronRight, Image as ImageIcon, Trash2, MessageSquare } from "lucide-react"
+import { X, ChevronLeft, ChevronRight, Image as ImageIcon, Trash2, MessageSquare, Download } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { type Attachment } from "@/types"
@@ -43,6 +43,16 @@ export default function ImageLightbox({
 
     const handleNext = () => {
         setCurrentIndex(prev => (prev < images.length - 1 ? prev + 1 : 0))
+    }
+
+    const handleDownload = () => {
+        if (!currentImage) return
+        const link = document.createElement('a')
+        link.href = currentImage.url
+        link.download = currentImage.name
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
     }
 
     if (!isOpen || images.length === 0) return null
@@ -96,6 +106,15 @@ export default function ImageLightbox({
                         >
                             <MessageSquare className="size-4" />
                             Comentar
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-white/70 hover:text-white h-8 gap-2"
+                            onClick={handleDownload}
+                        >
+                            <Download className="size-4" />
+                            Baixar
                         </Button>
                         <Button 
                             variant="ghost" 

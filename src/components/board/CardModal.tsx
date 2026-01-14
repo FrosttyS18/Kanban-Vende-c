@@ -6,9 +6,11 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import { CSS } from '@dnd-kit/utilities';
 
 import ImageLightbox from "./ImageLightbox"
+import { getDominantColor } from "@/utils/imageUtils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Label, type Attachment, type Activity } from "@/types"
+import { uploadFile } from "@/services/uploadService"
 
 type Props = {
   isOpen: boolean
@@ -347,49 +349,71 @@ export default function CardModal({
   }
 
   const handleFileSelect = () => {
+      console.log("Opening file dialog...");
       fileInputRef.current?.click()
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
+          console.log("Files selected:", e.target.files.length);
           const files = Array.from(e.target.files)
-          const newAttachments: Attachment[] = []
-          let processedCount = 0
+          
+          setIsAttachmentMenuOpen(false)
 
-          files.forEach(file => {
-              const reader = new FileReader()
-              reader.onloadend = () => {
-                  const base64String = reader.result as string
+          for (const file of files) {
+              try {
+                  console.log("Processing file:", file.name);
+                  // 1. Calculate Dominant Color locally (avoids CORS issues)
+                  const localUrl = URL.createObjectURL(file)
+                  const dominantColor = await getDominantColor(localUrl)
+                  URL.revokeObjectURL(localUrl)
+
+                  // 2. Upload to Firebase
+                  const downloadURL = await uploadFile(file)
+                  
                   const newAttachment: Attachment = {
                       id: Date.now().toString() + Math.random().toString(),
                       name: file.name,
-                      url: base64String, // Persistent Data URL
+                      url: downloadURL, // Firebase URL
                       date: new Date().toLocaleDateString('pt-BR'),
-                      isCover: false
+                      isCover: false,
+                      dominantColor
                   }
-                  newAttachments.push(newAttachment)
-                  processedCount++
-
-                  if (processedCount === files.length) {
-                      setAttachments(prev => {
-                          const updated = [...prev, ...newAttachments]
-                          if (onUpdate) onUpdate({ attachments: updated })
-                          return updated
-                      })
-                  }
+                  
+                  // Update State safely
+                  setAttachments(prev => {
+                      const updated = [...prev, newAttachment]
+                      if (onUpdate) onUpdate({ attachments: updated })
+                      return updated
+                  })
+              } catch (error) {
+                  console.error("Failed to upload file:", file.name, error);
+                  // Não alerta mais erro, pois o serviço já tratou com fallback ou lançou erro real
               }
-              reader.readAsDataURL(file)
-          })
+          }
           
-          setIsAttachmentMenuOpen(false)
+          // Reset input to allow selecting the same file again
+          if (fileInputRef.current) {
+              fileInputRef.current.value = ''
+          }
       }
   }
 
-  const handleMakeCover = (attachmentId: string) => {
-      const newAttachments = attachments.map(a => ({
-          ...a,
-          isCover: a.id === attachmentId ? !a.isCover : false
-      }))
+  const handleMakeCover = async (attachmentId: string) => {
+      const attachmentToCover = attachments.find(a => a.id === attachmentId)
+      let color = attachmentToCover?.dominantColor
+
+      // Lazy load color if missing
+      if (attachmentToCover && !color) {
+          color = await getDominantColor(attachmentToCover.url)
+      }
+
+      const newAttachments = attachments.map(a => {
+        if (a.id === attachmentId) {
+            return { ...a, isCover: !a.isCover, dominantColor: color || a.dominantColor }
+        }
+        return { ...a, isCover: false }
+      })
       
       const hasCover = newAttachments.some(a => a.isCover)
       
@@ -521,24 +545,37 @@ export default function CardModal({
         
         {/* Cover Image */}
         {coverUrl && (
-          <div className="relative w-full h-64 bg-[#161a1d] group flex items-center justify-center overflow-hidden">
-             {/* Blurred Background */}
-             <div 
-                className="absolute inset-0 bg-cover bg-center opacity-40 blur-2xl scale-125"
-                style={{ backgroundImage: `url('${coverUrl}')` }}
-             />
-             
+          <div 
+             className="relative w-full h-64 group flex items-center justify-center overflow-hidden cursor-pointer"
+             style={{ backgroundColor: coverAttachment?.dominantColor || '#161a1d' }}
+             onClick={() => {
+                 const idx = attachments.findIndex(a => a.isCover)
+                 if (idx >= 0) setLightboxIndex(idx)
+             }}
+          >
              {/* Main Image */}
              <img 
                 src={coverUrl} 
                 alt="Cover" 
-                className="relative h-full w-full object-contain z-10 transition-transform duration-200"
+                className="relative h-full w-full object-contain z-10 transition-transform duration-200 group-hover:scale-[1.02]"
              />
 
              <div className="absolute top-4 right-14 flex gap-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="secondary" size="sm" className="bg-black/50 hover:bg-black/70 text-white border-none gap-2">
+                <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    className="bg-black/50 hover:bg-black/70 text-white border-none gap-2"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        // Optional: remove cover or change cover logic here if needed, 
+                        // but user just asked for preview. 
+                        // The button says "Capa" (Cover), which usually implies "This is the cover".
+                        // Maybe we should allow removing cover here?
+                        if (coverAttachment) handleMakeCover(coverAttachment.id)
+                    }}
+                >
                     <ImageIcon className="size-4" />
-                    Capa
+                    {coverAttachment?.isCover ? "Remover Capa" : "Capa"}
                 </Button>
              </div>
           </div>
@@ -894,34 +931,36 @@ export default function CardModal({
                                                         Você também pode arrastar e soltar arquivos para carregá-los.
                                                     </p>
                                                     <Button 
-                                                        onClick={handleFileSelect}
-                                                        variant="secondary" 
-                                                        className="w-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white"
-                                                    >
-                                                        Escolher um arquivo
-                                                    </Button>
-                                                </div>
+                                                    onClick={handleFileSelect}
+                                                    variant="secondary" 
+                                                    className="w-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white"
+                                                >
+                                                    Escolher um arquivo
+                                                </Button>
+                                            </div>
 
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-400 mb-1 block">Search or paste a link <span className="text-red-500">*</span></label>
-                                                    <Input 
-                                                        placeholder="Find recent links or paste a new link..." 
-                                                        className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
-                                                    />
-                                                </div>
+                                            {/* 
+                                            <div>
+                                                <label className="text-xs font-semibold text-gray-400 mb-1 block">Search or paste a link <span className="text-red-500">*</span></label>
+                                                <Input 
+                                                    placeholder="Find recent links or paste a new link..." 
+                                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
+                                                />
+                                            </div>
 
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-400 mb-1 block">Display text (optional)</label>
-                                                    <Input 
-                                                        placeholder="Text to display" 
-                                                        className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
-                                                    />
-                                                </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-gray-400 mb-1 block">Display text (optional)</label>
+                                                <Input 
+                                                    placeholder="Text to display" 
+                                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
+                                                />
+                                            </div>
 
-                                                <p className="text-xs text-gray-500">Give this link a title or description</p>
+                                            <p className="text-xs text-gray-500">Give this link a title or description</p>
+                                            */}
 
-                                                <div>
-                                                    <h4 className="text-xs font-semibold text-gray-400 mb-2">Recently Viewed</h4>
+                                            <div>
+                                                <h4 className="text-xs font-semibold text-gray-400 mb-2">Visualizados Recentemente</h4>
                                                     <div className="space-y-1">
                                                         {[
                                                             { title: 'SEQ STORIES - 5 Documentários p...', subtitle: '01 VENDE-C • Viewed 6 seconds ago' },
@@ -947,11 +986,13 @@ export default function CardModal({
                                                         onClick={() => setIsAttachmentMenuOpen(false)}
                                                         className="text-gray-400 hover:text-white hover:bg-white/10"
                                                     >
-                                                        Cancel
+                                                        Cancelar
                                                     </Button>
+                                                    {/* 
                                                     <Button className="bg-blue-600 hover:bg-blue-700 text-white">
                                                         Insert
                                                     </Button>
+                                                    */}
                                                 </div>
                                             </div>
                                         </div>,

@@ -46,15 +46,27 @@ export default function Board() {
 
   // Persistence Effects
   useEffect(() => {
-    localStorage.setItem('board_columns', JSON.stringify(columns))
+    try {
+      localStorage.setItem('board_columns', JSON.stringify(columns))
+    } catch (error) {
+      console.error("Failed to save columns to localStorage:", error)
+    }
   }, [columns])
 
   useEffect(() => {
-    localStorage.setItem('board_cards', JSON.stringify(cards))
+    try {
+      localStorage.setItem('board_cards', JSON.stringify(cards))
+    } catch (error) {
+      console.error("Failed to save cards to localStorage:", error)
+    }
   }, [cards])
 
   useEffect(() => {
-    localStorage.setItem('board_labels', JSON.stringify(availableLabels))
+    try {
+      localStorage.setItem('board_labels', JSON.stringify(availableLabels))
+    } catch (error) {
+      console.error("Failed to save labels to localStorage:", error)
+    }
   }, [availableLabels])
 
   const [activeCard, setActiveCard] = useState<CardData | null>(null)
