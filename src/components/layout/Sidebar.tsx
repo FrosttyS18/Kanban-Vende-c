@@ -1,48 +1,57 @@
-import { Button } from "@/components/ui/button"
-import { LayoutDashboard, Star, Archive, Settings, Plus } from "lucide-react"
+import { Plus, Settings2, SquareKanban } from 'lucide-react'
+import { type BoardData } from '@/types'
 
-interface SidebarProps {
-  currentView?: 'board' | 'archived'
-  onNavigate?: (view: 'board' | 'archived') => void
+type SidebarProps = {
+  boards: BoardData[]
+  activeBoardId: string
+  onCreateBoard: () => void
+  onSelectBoard: (boardId: string) => void
 }
 
-export default function Sidebar({ currentView = 'board', onNavigate }: SidebarProps) {
+export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelectBoard }: SidebarProps) {
   return (
-    <aside className="hidden w-64 border-r border-white/10 bg-black/20 backdrop-blur-sm p-3 md:flex md:flex-col gap-4">
-      <div className="px-2 py-1">
-        <div className="mb-2 flex items-center justify-between px-2 text-xs font-bold text-foreground/70">
-          <span>Área de Trabalho</span>
-          <Plus className="size-3 cursor-pointer hover:text-foreground" />
+    <aside className="hidden h-full w-[253px] border-r border-[#3d3d3d] bg-[#1e1e1e] lg:flex lg:flex-col">
+      <div className="px-8 pb-6 pt-7">
+        <div className="mb-10 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-[18px] font-semibold text-white">
+            <SquareKanban className="size-4 text-[#d1d1d1]" />
+            Boards
+          </div>
+          <button type="button" onClick={onCreateBoard} className="text-[#d1d1d1] hover:text-white" aria-label="Criar board">
+            <Plus className="size-4" />
+          </button>
         </div>
-        <div className="grid gap-1">
-          <Button 
-            onClick={() => onNavigate?.('board')}
-            variant={currentView === 'board' ? "secondary" : "ghost"} 
-            className={`justify-start gap-2 h-9 font-medium ${currentView === 'board' ? 'bg-white/10 text-foreground hover:bg-white/20 border-none' : 'text-foreground/70 hover:text-foreground hover:bg-white/10'}`}
-          >
-            <LayoutDashboard className="size-4" />
-            Vende-C Projeto
-          </Button>
-          <Button variant="ghost" className="justify-start gap-2 text-foreground/70 hover:text-foreground hover:bg-white/10 h-9">
-            <Star className="size-4" />
-            Destaques
-          </Button>
-          <Button 
-            onClick={() => onNavigate?.('archived')}
-            variant={currentView === 'archived' ? "secondary" : "ghost"}
-            className={`justify-start gap-2 h-9 font-medium ${currentView === 'archived' ? 'bg-white/10 text-foreground hover:bg-white/20 border-none' : 'text-foreground/70 hover:text-foreground hover:bg-white/10'}`}
-          >
-            <Archive className="size-4" />
-            Arquivados
-          </Button>
+
+        <div className="space-y-4">
+          {boards.map((board) => {
+            const active = board.id === activeBoardId
+            return (
+              <button
+                key={board.id}
+                type="button"
+                onClick={() => onSelectBoard(board.id)}
+                className={`flex h-[33px] w-[205px] items-center justify-center rounded-[7px] border px-2 text-center text-[14px] font-semibold transition-colors ${
+                  active
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-[#d1d1d1] bg-transparent text-white hover:bg-white/5'
+                }`}
+              >
+                <span className="truncate">{board.title}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
-      
-      <div className="mt-auto border-t border-white/10 pt-3 px-2">
-         <Button variant="ghost" className="w-full justify-start gap-2 text-foreground/70 hover:text-foreground hover:bg-white/10 h-9">
-            <Settings className="size-4" />
-            Configurações
-          </Button>
+
+      <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
+        <button
+          type="button"
+          className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
+          aria-label="Configuracoes"
+        >
+          <Settings2 className="size-4 text-[#d1d1d1]" />
+          Configuracoes
+        </button>
       </div>
     </aside>
   )

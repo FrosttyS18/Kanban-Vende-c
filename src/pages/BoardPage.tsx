@@ -1,8 +1,8 @@
-import { useState } from "react"
-import Header from "@/components/layout/Header"
-import Sidebar from "@/components/layout/Sidebar"
-import Board from "@/components/board/Board"
-import ArchivedBoard from "@/components/board/ArchivedBoard"
+import { useState } from 'react'
+import Header from '@/components/layout/Header'
+import Sidebar from '@/components/layout/Sidebar'
+import Board from '@/components/board/Board'
+import { type BoardData } from '@/types'
 
 interface BoardPageProps {
   userEmail?: string
@@ -11,24 +11,44 @@ interface BoardPageProps {
 }
 
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
-  const [currentView, setCurrentView] = useState<'board' | 'archived'>('board')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [createBoardSignal, setCreateBoardSignal] = useState(0)
+  const [shareBoardSignal, setShareBoardSignal] = useState(0)
+  const [boards, setBoards] = useState<BoardData[]>([])
+  const [activeBoardId, setActiveBoardId] = useState('')
+
+  const triggerCreateBoard = () => {
+    setCreateBoardSignal((prev) => prev + 1)
+  }
 
   return (
-    <div className="grid h-screen grid-cols-1 grid-rows-[auto_1fr] md:grid-cols-[260px_1fr] md:grid-rows-[auto_1fr] bg-background">
-      <div className="md:col-span-2">
-        <Header userEmail={userEmail} onLogout={onLogout} isLogoutLoading={isLogoutLoading} />
+    <div className="grid h-screen grid-cols-1 grid-rows-[100px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[100px_1fr]">
+      <div className="lg:col-span-2">
+        <Header
+          userEmail={userEmail}
+          onLogout={onLogout}
+          isLogoutLoading={isLogoutLoading}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onCreateBoard={triggerCreateBoard}
+          onShareBoard={() => setShareBoardSignal((prev) => prev + 1)}
+        />
       </div>
-      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-      <main className="overflow-hidden relative">
-        <div className={`h-full w-full transition-opacity duration-300 ${currentView === 'board' ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none absolute inset-0 -z-10'}`}>
-           <Board />
-        </div>
-        
-        {currentView === 'archived' && (
-          <div className="h-full w-full animate-in fade-in slide-in-from-bottom-4 duration-300 absolute inset-0 z-20 bg-background">
-            <ArchivedBoard />
-          </div>
-        )}
+
+      <Sidebar boards={boards} activeBoardId={activeBoardId} onCreateBoard={triggerCreateBoard} onSelectBoard={setActiveBoardId} />
+
+      <main className="overflow-hidden bg-[#252525]">
+        <Board
+          userEmail={userEmail}
+          searchQuery={searchQuery}
+          createBoardSignal={createBoardSignal}
+          shareBoardSignal={shareBoardSignal}
+          selectedBoardId={activeBoardId}
+          onBoardMetaChange={(meta) => {
+            setBoards(meta.boards)
+            setActiveBoardId(meta.currentBoardId)
+          }}
+        />
       </main>
     </div>
   )

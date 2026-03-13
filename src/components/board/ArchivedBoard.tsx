@@ -1,105 +1,75 @@
-import { useState, useEffect } from "react"
-import { Archive } from "lucide-react"
-import Card from "@/components/board/Card"
-import { type Label, type Attachment } from "@/types"
-
-interface ArchivedCard {
-  id: string
-  title: string
-  labels: Label[]
-  cover: boolean
-  attachments?: Attachment[]
-  archivedAt: string
-  originalColumn: string
-}
+import { useEffect, useState } from 'react'
+import { Archive, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { type ArchivedCardData } from '@/types'
+import { loadBoardStore, saveBoardStore } from '@/services/boardService'
 
 export default function ArchivedBoard() {
-  const [archivedCards, setArchivedCards] = useState<ArchivedCard[]>([])
+  const [archivedCards, setArchivedCards] = useState<ArchivedCardData[]>([])
 
   useEffect(() => {
     const loadCards = () => {
-      try {
-        const stored = localStorage.getItem('archived_cards')
-        if (stored) {
-          setArchivedCards(JSON.parse(stored))
-        }
-      } catch (e) {
-        console.error("Failed to load archived cards", e)
-      }
+      const store = loadBoardStore()
+      setArchivedCards(store.archivedCards)
     }
-    
+
     loadCards()
-    
-    // Listen for storage events (in case of multiple tabs, though not critical here)
     window.addEventListener('storage', loadCards)
     return () => window.removeEventListener('storage', loadCards)
   }, [])
 
-  const handleDeleteForever = (id: string | number) => {
-    const newCards = archivedCards.filter(c => c.id !== id)
-    setArchivedCards(newCards)
-    localStorage.setItem('archived_cards', JSON.stringify(newCards))
+  const handleDeleteForever = (cardId: string) => {
+    const store = loadBoardStore()
+    const nextArchived = store.archivedCards.filter((card) => card.id !== cardId)
+
+    saveBoardStore({
+      ...store,
+      archivedCards: nextArchived
+    })
+
+    setArchivedCards(nextArchived)
   }
-
-  // Group by Year
-  const groupedByYear = archivedCards.reduce((acc, card) => {
-    const date = card.archivedAt ? new Date(card.archivedAt) : new Date(0)
-    const year = date.getFullYear().toString()
-    
-    if (!acc[year]) {
-      acc[year] = []
-    }
-    acc[year].push(card)
-    return acc
-  }, {} as Record<string, ArchivedCard[]>)
-
-  // Sort years descending
-  const years = Object.keys(groupedByYear).sort((a, b) => Number(b) - Number(a))
 
   return (
     <div className="h-full w-full overflow-y-auto p-8 text-foreground">
-      <h1 className="text-3xl font-bold mb-8 flex items-center gap-3">
+      <h1 className="mb-8 flex items-center gap-3 text-3xl font-bold">
         <Archive className="size-8 text-primary" />
-        Arquivos
+        Arquivados
       </h1>
 
-      {years.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-          <p>Nenhum item arquivado.</p>
+      {archivedCards.length === 0 ? (
+        <div className="flex h-64 flex-col items-center justify-center text-muted-foreground">
+          <p>Nenhum card arquivado.</p>
         </div>
       ) : (
-        <div className="space-y-12">
-          {years.map(year => (
-            <div key={year} className="space-y-4">
-              <div className="flex items-center gap-2 border-b border-white/10 pb-2">
-                <span className="text-4xl font-light text-primary/50">{year}</span>
-                <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                  {groupedByYear[year].length} itens
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {groupedByYear[year].map(card => (
-                  <div key={card.id} className="opacity-80 hover:opacity-100 transition-opacity">
-                    <Card 
-                      id={card.id}
-                      title={card.title}
-                      cover={card.cover}
-                      labels={card.labels}
-                      attachments={card.attachments || []}
-                      onDelete={handleDeleteForever}
-                      availableLabels={[]}
-                      onUpdateAvailableLabels={() => {}}
-                      // No onArchive prop means it won't show the option or it won't work, which is fine for Archived view
-                    />
-                    <div className="mt-2 text-[10px] text-muted-foreground text-center">
-                        Origem: {card.originalColumn} • {new Date(card.archivedAt).toLocaleDateString()}
-                    </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {archivedCards
+            .slice()
+            .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime())
+            .map((card) => (
+              <article key={`${card.id}_${card.archivedAt}`} className="rounded-lg border border-white/10 bg-[#141414] p-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="truncate text-sm font-semibold uppercase text-foreground">{card.title}</h3>
+                  <Button variant="ghost" size="icon" className="size-7 text-red-400 hover:bg-red-500/10 hover:text-red-300" onClick={() => handleDeleteForever(card.id)} aria-label="Excluir definitivamente">
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+
+                <p className="text-xs text-muted-foreground">Board: {card.boardTitle}</p>
+                <p className="text-xs text-muted-foreground">Lista: {card.listTitle}</p>
+                <p className="mt-2 text-xs text-muted-foreground">Arquivado em {new Date(card.archivedAt).toLocaleString('pt-BR')}</p>
+
+                {card.labels.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {card.labels.map((label) => (
+                      <span key={label.id} className="rounded px-2 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: label.color }}>
+                        {label.text}
+                      </span>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                )}
+              </article>
+            ))}
         </div>
       )}
     </div>

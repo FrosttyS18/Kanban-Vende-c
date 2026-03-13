@@ -4,6 +4,36 @@ export interface Label {
   color: string
 }
 
+export interface Member {
+  id: string
+  name: string
+  email: string
+  initials: string
+  color: string
+}
+
+export type SharePermission = 'view' | 'edit'
+
+export interface BoardShareMember {
+  memberId: string
+  permission: SharePermission
+}
+
+export interface BoardShareSettings {
+  boardId: string
+  linkToken: string
+  allowLinkAccess: boolean
+  members: BoardShareMember[]
+}
+
+export interface LinkAttachment {
+  id: string
+  title: string
+  url: string
+  type: 'drive' | 'figma' | 'other'
+  createdAt: string
+}
+
 export interface Attachment {
   id: string
   name: string
@@ -13,30 +43,78 @@ export interface Attachment {
   dominantColor?: string
 }
 
+export interface ChecklistItem {
+  id: string
+  content: string
+  isDone: boolean
+}
+
+export interface Checklist {
+  id: string
+  title: string
+  items: ChecklistItem[]
+}
+
 export interface Activity {
   id: string
-  user: string
-  userInitials: string
-  action: string
-  date: string
-  type: 'comment' | 'move'
+  type: 'comment' | 'system'
+  actorId: string
+  actorName: string
+  actorInitials: string
+  message: string
+  createdAt: string
 }
 
 export interface CardData {
-  id: number | string
-  columnId: string
+  id: string
+  listId: string
   title: string
+  description: string
   labels: Label[]
-  cover: boolean
+  memberIds: string[]
   dueDate?: string
-  members?: string[]
-  isCompleted?: boolean
-  description?: string
-  activities?: Activity[]
-  attachments?: Attachment[]
+  isCompleted: boolean
+  checklists: Checklist[]
+  links: LinkAttachment[]
+  activities: Activity[]
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ColumnData {
   id: string
+  boardId: string
   title: string
+  position: number
+}
+
+export interface BoardData {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ArchivedCardData {
+  id: string
+  boardId: string
+  boardTitle: string
+  listId: string
+  listTitle: string
+  title: string
+  labels: Label[]
+  archivedAt: string
+}
+
+export interface BoardStore {
+  version: number
+  boards: BoardData[]
+  columns: ColumnData[]
+  cards: CardData[]
+  labelsByBoard: Record<string, Label[]>
+  shareByBoard: Record<string, BoardShareSettings>
+  archivedCards: ArchivedCardData[]
+  members: Member[]
+  currentBoardId: string
+  currentMemberId: string
 }

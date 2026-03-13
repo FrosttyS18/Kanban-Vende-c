@@ -1,284 +1,279 @@
-import { useState, useRef, useEffect } from "react"
-import { createPortal } from "react-dom"
-import { Paperclip, CheckSquare, Archive, Trash2, AlertTriangle, Clock } from "lucide-react"
-import CardModal from "./CardModal"
-import { Button } from "@/components/ui/button"
-import { useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
-import { type Label, type Attachment, type CardData } from "@/types"
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Archive, Check, Circle, Clock3, Paperclip, Trash2, User } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import CardModal from './CardModal'
+import { type CardData, type Label, type Member } from '@/types'
 
-type Props = {
-  id: number | string
-  title: string
-  cover?: boolean
-  labels?: Label[]
-  dueDate?: string
-  members?: string[]
-  isCompleted?: boolean
-  attachments?: Attachment[]
-  onDelete?: (id: number | string) => void
-  onArchive?: (id: number | string) => void
-  onUpdate?: (id: number | string, data: Partial<CardData>) => void
+type CardProps = {
+  card: CardData
+  listTitle: string
+  listOptions: Array<{ id: string; title: string }>
   availableLabels: Label[]
   onUpdateAvailableLabels: (labels: Label[]) => void
+  boardMembers: Member[]
+  currentMemberId: string
+  onDelete?: (id: string) => void
+  onArchive?: (id: string) => void
+  onUpdate?: (id: string, data: Partial<CardData>) => void
   isOverlay?: boolean
+  disableModal?: boolean
 }
 
-export default function Card({ 
-    id, 
-    title, 
-    cover, 
-    labels = [], 
-    dueDate, 
-    members = [], 
-    isCompleted,
-    attachments = [],
-    onDelete, 
-    onArchive, 
-    onUpdate,
-    availableLabels,
-    onUpdateAvailableLabels,
-    isOverlay 
-}: Props) {
+type DueBadge = {
+  className: string
+  textClassName: string
+  iconClassName: string
+  showBackground: boolean
+}
+
+function formatDueDate(value: string): string {
+  const date = new Date(value)
+  return date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '')
+}
+
+function getDueBadge(dueDate?: string, isCompleted?: boolean): DueBadge | null {
+  if (!dueDate) {
+    return null
+  }
+
+  if (isCompleted) {
+    return {
+      className: 'bg-[#00ff73]',
+      textClassName: 'text-[#242528]',
+      iconClassName: 'text-[#242528]',
+      showBackground: true
+    }
+  }
+
+  const target = new Date(dueDate)
+  const now = new Date()
+
+  if (target.getTime() <= now.getTime()) {
+    return {
+      className: 'bg-[#820002]',
+      textClassName: 'text-[#da7e77]',
+      iconClassName: 'text-[#da7e77]',
+      showBackground: true
+    }
+  }
+
+  const hoursUntilDue = (target.getTime() - now.getTime()) / (1000 * 60 * 60)
+  if (hoursUntilDue <= 24) {
+    return {
+      className: 'bg-[#ffff00]',
+      textClassName: 'text-[#242528]',
+      iconClassName: 'text-[#242528]',
+      showBackground: true
+    }
+  }
+
+  return {
+    className: 'bg-transparent',
+    textClassName: 'text-[#d1d1d1]',
+    iconClassName: 'text-[#d1d1d1]',
+    showBackground: false
+  }
+}
+
+function labelTextClass(color: string): string {
+  const value = color.replace('#', '')
+  if (value.length !== 6) {
+    return 'text-[#242528]'
+  }
+
+  const r = Number.parseInt(value.slice(0, 2), 16)
+  const g = Number.parseInt(value.slice(2, 4), 16)
+  const b = Number.parseInt(value.slice(4, 6), 16)
+
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.55 ? 'text-[#242528]' : 'text-white'
+}
+
+export default function Card({
+  card,
+  listTitle,
+  listOptions,
+  availableLabels,
+  onUpdateAvailableLabels,
+  boardMembers,
+  currentMemberId,
+  onDelete,
+  onArchive,
+  onUpdate,
+  isOverlay = false,
+  disableModal = false
+}: CardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [openWithPreview, setOpenWithPreview] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null)
-  const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  const {
-      setNodeRef,
-      attributes,
-      listeners,
-      transform,
-      transition,
-      isDragging
-  } = useSortable({
-      id,
-      data: {
-          type: "Card",
-          card: { id, title, cover, labels, dueDate, members, isCompleted }
-      },
-      disabled: isOverlay
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    data: {
+      type: 'Card',
+      card
+    },
+    disabled: isOverlay
   })
 
   const style = {
-      transition,
-      transform: CSS.Transform.toString(transform),
+    transition,
+    transform: CSS.Transform.toString(transform)
   }
 
+  const dueBadge = useMemo(() => getDueBadge(card.dueDate, card.isCompleted), [card.dueDate, card.isCompleted])
+
+  const assignedMembers = useMemo(
+    () => boardMembers.filter((member) => card.memberIds.includes(member.id)),
+    [boardMembers, card.memberIds]
+  )
+
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current && !menuRef.current.contains(target)) {
         setContextMenu(null)
       }
     }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation() // Prevent parent context menus
-    setContextMenu({ x: e.clientX, y: e.clientY })
-  }
-
-  const handleActionClick = (action: 'archive' | 'delete') => {
-    setConfirmAction(action)
-    setContextMenu(null)
-  }
-
-  const handleConfirm = () => {
-    if (confirmAction === 'delete' && onDelete) {
-      onDelete(id)
-    } else if (confirmAction === 'archive' && onArchive) {
-      onArchive(id)
-    }
-    setConfirmAction(null)
-  }
-
   if (isDragging) {
-    return (
-        <div ref={setNodeRef} style={style} className="opacity-30 rounded-md bg-[#22272b] h-24 border border-white/5" />
-    )
+    return <div ref={setNodeRef} style={style} className="h-[129px] rounded-[9px] bg-[#242528]/50" />
   }
 
   return (
     <>
-      <article 
+      <article
         ref={setNodeRef}
         style={style}
         {...attributes}
         {...listeners}
-        onContextMenu={handleContextMenu}
-        onClick={() => setIsModalOpen(true)}
-        className="group relative flex flex-col rounded-md bg-card text-sm shadow-sm ring-1 ring-white/5 hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer overflow-hidden"
+        onContextMenu={(event) => {
+          if (isOverlay) {
+            return
+          }
+          event.preventDefault()
+          setContextMenu({ x: event.clientX, y: event.clientY })
+        }}
+        onClick={() => {
+          if (disableModal || isOverlay) {
+            return
+          }
+          setIsModalOpen(true)
+        }}
+        className="group mx-2 cursor-pointer rounded-[9px] bg-[#242528] px-2 py-2"
       >
-        {/* Edge-to-Edge Cover Image */}
-        {cover && (
-            <div 
-                className="relative h-48 w-full overflow-hidden rounded-t-md group z-0 transition-colors duration-300"
-                style={{
-                    backgroundColor: attachments.find(a => a.isCover)?.dominantColor || '#22272b'
-                }}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setOpenWithPreview(true)
-                    setIsModalOpen(true)
-                }}
-            >
-                {/* Main Image */}
-                <div 
-                    className="absolute inset-0 bg-contain bg-center bg-no-repeat z-10 transition-transform group-hover:scale-105 duration-500"
-                    style={{ 
-                        backgroundImage: `url('${attachments.find(a => a.isCover)?.url}')` 
-                    }}
-                />
-            </div>
+        {card.labels.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {card.labels.map((label) => (
+              <span key={label.id} className={`rounded-[4px] px-2 py-1 text-[12px] font-semibold ${labelTextClass(label.color)}`} style={{ backgroundColor: label.color }}>
+                {label.text}
+              </span>
+            ))}
+          </div>
         )}
-        
-        <div className="p-3 flex flex-col gap-2">
-          {/* Labels */}
-          {labels && labels.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-1">
-              {labels.map((label, index) => (
-                <span 
-                  key={label.id || index} 
-                  className="px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider shadow-sm" 
-                  style={{ backgroundColor: label.color }} 
-                  title={label.text}
-                >
-                  {label.text}
-                </span>
-              ))}
+
+        <div className="mb-2 flex items-start gap-2">
+          <span className="mt-0.5 text-[#d1d1d1]">
+            {card.isCompleted ? <Check className="size-4" /> : <Circle className="size-4" />}
+          </span>
+          <h4 className="line-clamp-2 text-[15px] font-semibold leading-[1.15] text-white">{card.title}</h4>
+        </div>
+
+        <div className="mt-1 flex items-center justify-between">
+          {dueBadge && card.dueDate ? (
+            <div className={`inline-flex items-center gap-1 rounded-[4px] px-1.5 py-1 ${dueBadge.showBackground ? dueBadge.className : ''}`}>
+              <Clock3 className={`size-[14px] ${dueBadge.iconClassName}`} />
+              <span className={`text-[14px] font-semibold ${dueBadge.textClassName}`}>{formatDueDate(card.dueDate)}</span>
             </div>
+          ) : (
+            <div />
           )}
 
-          <div className="font-medium text-card-foreground leading-snug">{title}</div>
-          
-          {/* Metadata Footer */}
-          {(dueDate || isCompleted || (members && members.length > 0) || cover) && (
-            <div className="mt-1 flex items-center justify-between min-h-5">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
-               {(dueDate || isCompleted) && (
-                  <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      isCompleted 
-                         ? 'bg-green-500/20 text-green-400' 
-                         : (dueDate && new Date(dueDate) < new Date())
-                             ? 'bg-red-500/20 text-red-400' 
-                             : 'bg-zinc-700 text-zinc-300'
-                  }`}>
-                     {isCompleted ? <CheckSquare className="size-3" /> : <Clock className="size-3" />}
-                     <span>
-                        {dueDate && new Date(dueDate).toLocaleDateString('pt-BR', {day: 'numeric', month: 'short'}).replace('.', '')}
-                        {isCompleted && (dueDate ? <span className="hidden sm:inline"> • CONCLUÍDO</span> : "CONCLUÍDO")}
-                     </span>
-                  </div>
-               )}
-               {cover && (
-                 <Paperclip className="size-3" />
-               )}
+          <div className="flex items-center gap-2 text-white">
+            {assignedMembers.length > 0 && (
+              <div className="flex -space-x-1">
+                {assignedMembers.slice(0, 2).map((member) => (
+                  <span key={member.id} className="flex size-4 items-center justify-center rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: member.color }}>
+                    {member.initials}
+                  </span>
+                ))}
               </div>
-              
-              {/* Members */}
-              {members && members.length > 0 ? (
-                  <div className="flex -space-x-1 pl-2">
-                     {members.map((m, i) => (
-                        <div key={i} className="size-5 rounded-full bg-blue-600 border border-[#22272b] flex items-center justify-center text-[8px] text-white font-bold">
-                            {m.substring(0, 2).toUpperCase()}
-                        </div>
-                     ))}
-                  </div>
-              ) : (
-                  // Placeholder for user avatar if needed, or hidden
-                  null
-              )}
-            </div>
-          )}
+            )}
+            <span className="inline-flex items-center gap-1 text-[12px]">
+              <Paperclip className="size-[14px]" />
+              {card.links.length}
+            </span>
+          </div>
         </div>
       </article>
 
-      {isModalOpen && !isOverlay && (
-        <CardModal 
-          isOpen={isModalOpen} 
-          onClose={() => {
-            setIsModalOpen(false)
-            setOpenWithPreview(false)
-          }}
-          onUpdate={(data) => onUpdate && onUpdate(id, data)}
-          hasCover={cover}
-          title={title}
-          initialLabels={labels}
-          dueDate={dueDate}
-          isCompleted={isCompleted}
-          initialAttachments={attachments}
-          initialLightboxOpen={openWithPreview}
+      {isModalOpen && !isOverlay && !disableModal && (
+        <CardModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          card={card}
+          listTitle={listTitle}
+          listOptions={listOptions}
           availableLabels={availableLabels}
           onUpdateAvailableLabels={onUpdateAvailableLabels}
-          members={members}
+          members={boardMembers}
+          currentMemberId={currentMemberId}
+          onMoveToList={(listId) => onUpdate?.(card.id, { listId })}
+          onUpdate={(updates) => onUpdate?.(card.id, updates)}
+          onDelete={onDelete ? () => onDelete(card.id) : undefined}
+          onArchive={onArchive ? () => onArchive(card.id) : undefined}
         />
       )}
 
-      {/* Context Menu Portal */}
-      {contextMenu && createPortal(
-        <>
-            <div 
-                className="fixed inset-0 z-40" 
-                onClick={() => setContextMenu(null)}
-            />
-            <div 
-                ref={menuRef}
-                style={{ top: contextMenu.y, left: contextMenu.x }}
-                className="fixed z-50 w-48 rounded-md border border-white/10 bg-[#282e33] p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100"
-            >
-                {confirmAction ? (
-                    <div className="p-2 space-y-2">
-                        <div className="flex items-center gap-2 text-amber-500 text-xs font-medium">
-                            <AlertTriangle className="size-3" />
-                            <span>Tem certeza?</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <Button 
-                                variant="destructive" 
-                                size="sm" 
-                                className="h-7 text-xs"
-                                onClick={handleConfirm}
-                            >
-                                Sim
-                            </Button>
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-7 text-xs hover:bg-white/10"
-                                onClick={() => setConfirmAction(null)}
-                            >
-                                Não
-                            </Button>
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        <button 
-                            onClick={() => handleActionClick('archive')}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-gray-300 hover:bg-white/10 hover:text-white"
-                        >
-                            <Archive className="size-4" />
-                            Arquivar
-                        </button>
-                        <div className="my-1 h-px bg-white/10" />
-                        <button 
-                            onClick={() => handleActionClick('delete')}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
-                        >
-                            <Trash2 className="size-4" />
-                            Excluir
-                        </button>
-                    </>
-                )}
+      {contextMenu &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
+            <div ref={menuRef} style={{ top: contextMenu.y, left: contextMenu.x }} className="fixed z-50 w-48 rounded-md border border-white/10 bg-[#282e33] p-1 shadow-xl">
+              {onArchive && (
+                <button
+                  onClick={() => {
+                    onArchive(card.id)
+                    setContextMenu(null)
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-gray-300 hover:bg-white/10 hover:text-white"
+                >
+                  <Archive className="size-4" />
+                  Arquivar
+                </button>
+              )}
+
+              {onArchive && onDelete && <div className="my-1 h-px bg-white/10" />}
+
+              {onDelete && (
+                <button
+                  onClick={() => {
+                    onDelete(card.id)
+                    setContextMenu(null)
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
+                >
+                  <Trash2 className="size-4" />
+                  Excluir
+                </button>
+              )}
+
+              {!onDelete && !onArchive && (
+                <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                  <User className="size-3" />
+                  Sem acoes disponiveis
+                </div>
+              )}
             </div>
-        </>,
-        document.body
-      )}
+          </>,
+          document.body
+        )}
     </>
   )
 }

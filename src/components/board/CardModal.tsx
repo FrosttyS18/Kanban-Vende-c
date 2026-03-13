@@ -1,1375 +1,832 @@
-import { createPortal } from "react-dom"
-import { useState, useRef, useEffect } from "react"
-import { X, Plus, Paperclip, Users, CheckSquare, Clock, AlignLeft, MoreHorizontal, Image as ImageIcon, Pencil, ChevronLeft, Trash2, Monitor, CheckCircle2, Circle, ChevronRight, GripVertical } from "lucide-react"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, CheckCircle2, CheckSquare, Link2, Plus, Trash2, Users, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { type Activity, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member } from '@/types'
+import { createId } from '@/services/boardService'
 
-import ImageLightbox from "./ImageLightbox"
-import { getDominantColor } from "@/utils/imageUtils"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { type Label, type Attachment, type Activity, type CardData } from "@/types"
-import { uploadFile } from "@/services/uploadService"
-
-type Props = {
+type CardModalProps = {
   isOpen: boolean
   onClose: () => void
-  hasCover?: boolean
-  title?: string
-  initialDescription?: string
-  initialLabels?: Label[]
-  initialActivities?: Activity[]
-  initialAttachments?: Attachment[]
-  initialLightboxOpen?: boolean
-  isCompleted?: boolean
-  dueDate?: string
+  card: CardData
+  listTitle: string
+  listOptions: Array<{ id: string; title: string }>
   availableLabels: Label[]
   onUpdateAvailableLabels: (labels: Label[]) => void
-  members?: string[]
+  members: Member[]
+  currentMemberId: string
+  onMoveToList: (listId: string) => void
+  onUpdate: (updates: Partial<CardData>) => void
+  onDelete?: () => void
+  onArchive?: () => void
 }
 
-const LABEL_COLORS = [
-    '#164b35', '#533f04', '#592e08', '#5c1209', '#422446',
-    '#216e4e', '#7f5f01', '#a54800', '#ae2e24', '#5e4db2',
-    '#4bce97', '#f5dd29', '#ffa515', '#f87168', '#9f8fef',
-    '#227d9b', '#0c66e4', '#6cc3e0', '#6e5dc6', '#505f79',
-    '#60c6d2', '#6cd8fa', '#94c748', '#e774bb', '#8590a2'
-]
-
-const INITIAL_LABELS: Label[] = []
-
-const INITIAL_ACTIVITIES: Activity[] = []
-
-// Sortable Attachment Item Component
-function SortableAttachmentItem({ 
-    attachment, 
-    onDelete, 
-    onMakeCover,
-    onView
-}: { 
-    attachment: Attachment, 
-    onDelete: () => void, 
-    onMakeCover: () => void,
-    onView: () => void
-}) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-    } = useSortable({ id: attachment.id });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
-
-    return (
-        <div ref={setNodeRef} style={style} className="flex items-start gap-3 group bg-[#161a1d] p-2 rounded border border-transparent hover:border-white/5">
-            <div {...attributes} {...listeners} className="mt-8 cursor-grab text-muted-foreground hover:text-foreground">
-                <GripVertical className="size-4" />
-            </div>
-            <div 
-                className="h-20 w-28 bg-white/5 rounded overflow-hidden shrink-0 border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={onView}
-            >
-                 <img src={attachment.url} className="w-full h-full object-cover" />
-            </div>
-            <div className="flex-1 min-w-0">
-                <h4 
-                    className="text-sm font-medium text-foreground truncate cursor-pointer hover:underline"
-                    onClick={onView}
-                >
-                    {attachment.name}
-                </h4>
-                <p className="text-xs text-muted-foreground mt-1">Adicionado há {attachment.date} • {attachment.isCover && <span className="text-foreground/80">Capa</span>}</p>
-                <div className="flex items-center gap-3 mt-2">
-                    <button className="text-xs text-foreground/80 hover:underline">Comentar</button>
-                    <button onClick={onDelete} className="text-xs text-foreground/80 hover:underline">Excluir</button>
-                    <button onClick={onMakeCover} className="text-xs text-foreground/80 hover:underline">
-                        {attachment.isCover ? "Remover Capa" : "Tornar Capa"}
-                    </button>
-                </div>
-            </div>
-            <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-muted-foreground">
-                <MoreHorizontal className="size-4" />
-            </button>
-        </div>
-    );
+type LinkDraft = {
+  id?: string
+  title: string
+  url: string
+  type: 'drive' | 'figma' | 'other'
 }
 
-export default function CardModal({ 
-    isOpen, 
-    onClose, 
-    onUpdate,
-    hasCover, 
-    title,
-    initialDescription = "",
-    initialLabels = INITIAL_LABELS,
-    initialActivities = INITIAL_ACTIVITIES,
-    initialAttachments = [],
-    initialLightboxOpen = false,
-    isCompleted: initialIsCompleted = false,
-    dueDate: initialDueDate,
-    availableLabels,
-    onUpdateAvailableLabels
-}: Props & { onUpdate?: (data: Partial<CardData>) => void }) {
-  const [description, setDescription] = useState(initialDescription)
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(() => {
-    if (!initialLightboxOpen || initialAttachments.length === 0) return null
-    const coverIndex = initialAttachments.findIndex((attachment) => attachment.isCover)
-    return coverIndex >= 0 ? coverIndex : 0
+const LABEL_COLOR_OPTIONS = ['#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#db2777']
+
+function formatDateTime(dateValue?: string): string {
+  if (!dateValue) {
+    return 'Sem data'
+  }
+
+  const date = new Date(dateValue)
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   })
-  const [isEditingDescription, setIsEditingDescription] = useState(false)
+}
+
+function getDateStatus(dueDate?: string, isCompleted?: boolean): { text: string; className: string } {
+  if (!dueDate) {
+    return { text: 'Sem data', className: 'bg-zinc-700 text-zinc-300' }
+  }
+
+  if (isCompleted) {
+    return { text: 'Concluido', className: 'bg-green-500/20 text-green-300' }
+  }
+
+  const target = new Date(dueDate)
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrowStart = new Date(todayStart)
+  tomorrowStart.setDate(todayStart.getDate() + 1)
+
+  if (target < todayStart) {
+    return { text: 'Atrasado', className: 'bg-red-500/20 text-red-300' }
+  }
+
+  if (target >= todayStart && target < tomorrowStart) {
+    return { text: 'Vence hoje', className: 'bg-amber-500/20 text-amber-300' }
+  }
+
+  return { text: 'No prazo', className: 'bg-zinc-700 text-zinc-300' }
+}
+
+export default function CardModal({
+  isOpen,
+  onClose,
+  card,
+  listTitle,
+  listOptions,
+  availableLabels,
+  onUpdateAvailableLabels,
+  members,
+  currentMemberId,
+  onMoveToList,
+  onUpdate,
+  onDelete,
+  onArchive
+}: CardModalProps) {
+  const [cardState, setCardState] = useState<CardData>(card)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [editedTitle, setEditedTitle] = useState(title || "")
-  const [commentText, setCommentText] = useState("")
-  const [labels, setLabels] = useState<Label[]>(initialLabels)
-  const [activities, setActivities] = useState<Activity[]>(initialActivities)
-  const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments)
-  
-  // Date & Completion State
-  const [isCompleted, setIsCompleted] = useState(initialIsCompleted)
-  const [dueDate, setDueDate] = useState<Date | null>(initialDueDate ? new Date(initialDueDate) : null)
-  const [dueDateStr, setDueDateStr] = useState(
-    initialDueDate ? new Date(initialDueDate).toLocaleDateString('pt-BR') : "",
-  )
-  const [isDateMenuOpen, setIsDateMenuOpen] = useState(false)
-  const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date())
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [commentText, setCommentText] = useState('')
 
-  // DnD Sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
+  const [showLabelsPanel, setShowLabelsPanel] = useState(false)
+  const [showMembersPanel, setShowMembersPanel] = useState(false)
+  const [showDatePanel, setShowDatePanel] = useState(false)
+  const [showChecklistPanel, setShowChecklistPanel] = useState(false)
+  const [showLinksPanel, setShowLinksPanel] = useState(false)
+
+  const [newLabelName, setNewLabelName] = useState('')
+  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLOR_OPTIONS[0])
+
+  const [newChecklistTitle, setNewChecklistTitle] = useState('')
+  const [checklistDraftItems, setChecklistDraftItems] = useState<Record<string, string>>({})
+
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>({ title: '', url: '', type: 'other' })
+  const [linkError, setLinkError] = useState('')
+
+  const [dueDateInput, setDueDateInput] = useState('')
+  const [dueTimeInput, setDueTimeInput] = useState('')
+
+  const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
+
+  const selectedMemberMap = useMemo(() => {
+    const map = new Map<string, Member>()
+    members.forEach((member) => {
+      map.set(member.id, member)
     })
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setAttachments((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        if (onUpdate) onUpdate({ attachments: newItems });
-        return newItems;
-      });
-    }
-  };
-
-  const handleDueDateBlur = () => {
-    const parts = dueDateStr.replace(/[^0-9/]/g, '').split('/')
-    if (parts.length >= 2) {
-        const day = parseInt(parts[0])
-        const month = parseInt(parts[1]) - 1
-        const year = parts[2] ? (parts[2].length === 2 ? 2000 + parseInt(parts[2]) : parseInt(parts[2])) : new Date().getFullYear()
-        
-        const newDate = new Date(year, month, day)
-        if (!isNaN(newDate.getTime())) {
-            setDueDate(newDate)
-            setCurrentCalendarDate(newDate)
-            if (onUpdate) onUpdate({ dueDate: newDate.toISOString() })
-        }
-    }
-  }
-  
-  const dateButtonRef = useRef<HTMLButtonElement>(null)
-  const dateDisplayRef = useRef<HTMLDivElement>(null)
-  const dateMenuRef = useRef<HTMLDivElement>(null)
-  
-  // Label Menu state
-  const [isLabelMenuOpen, setIsLabelMenuOpen] = useState(false)
-  const [labelMenuMode, setLabelMenuMode] = useState<'list' | 'create' | 'edit'>('list')
-  const [labelSearch, setLabelSearch] = useState("")
-  const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 })
-
-  // Attachment Menu state
-  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
-  const attachmentButtonRef = useRef<HTMLButtonElement>(null)
-  const attachmentMenuRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  
-  // Dragging state for Label Menu
-  const [isDragging, setIsDragging] = useState(false)
-  const dragStartRef = useRef({ x: 0, y: 0 })
-  const popoverStartRef = useRef({ top: 0, left: 0 })
-
-  // New/Edit Label State
-  const [createLabelTitle, setCreateLabelTitle] = useState("")
-  const [createLabelColor, setCreateLabelColor] = useState(LABEL_COLORS[12])
-  const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
-
-  const descriptionRef = useRef<HTMLTextAreaElement>(null)
-  const labelMenuRef = useRef<HTMLDivElement>(null)
-  const labelButtonRef = useRef<HTMLButtonElement>(null)
-  const modalContentRef = useRef<HTMLDivElement>(null)
+    return map
+  }, [members])
 
   useEffect(() => {
-    if (isEditingDescription && descriptionRef.current) {
-      descriptionRef.current.focus()
-    }
-  }, [isEditingDescription])
+    setCardState(card)
+  }, [card])
 
-  // Drag logic
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-        if (!isDragging) return
-        const dx = e.clientX - dragStartRef.current.x
-        const dy = e.clientY - dragStartRef.current.y
-        setPopoverPosition({
-            top: popoverStartRef.current.top + dy,
-            left: popoverStartRef.current.left + dx
-        })
+    if (!cardState.dueDate) {
+      setDueDateInput('')
+      setDueTimeInput('')
+      return
     }
-    const handleMouseUp = () => setIsDragging(false)
 
-    if (isDragging) {
-        window.addEventListener('mousemove', handleMouseMove)
-        window.addEventListener('mouseup', handleMouseUp)
+    const due = new Date(cardState.dueDate)
+    const yyyy = due.getFullYear()
+    const mm = String(due.getMonth() + 1).padStart(2, '0')
+    const dd = String(due.getDate()).padStart(2, '0')
+    const hh = String(due.getHours()).padStart(2, '0')
+    const min = String(due.getMinutes()).padStart(2, '0')
+
+    setDueDateInput(`${yyyy}-${mm}-${dd}`)
+    setDueTimeInput(`${hh}:${min}`)
+  }, [cardState.dueDate])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
     }
+
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        window.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.overflow = previousOverflow
     }
-  }, [isDragging])
+  }, [isOpen])
 
-  const handleToggleCompleted = () => {
-      const newState = !isCompleted
-      setIsCompleted(newState)
-      if (onUpdate) onUpdate({ isCompleted: newState })
+  if (!isOpen) {
+    return null
   }
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-      if (e.target instanceof Element && (e.target.closest('button') || e.target.closest('input'))) {
-          return // Don't drag if clicking controls
-      }
-      setIsDragging(true)
-      dragStartRef.current = { x: e.clientX, y: e.clientY }
-      popoverStartRef.current = { top: popoverPosition.top, left: popoverPosition.left }
-  }
-
-  // Close label/attachment menu when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (labelMenuRef.current && !labelMenuRef.current.contains(event.target as Node) && 
-          labelButtonRef.current && !labelButtonRef.current.contains(event.target as Node)) {
-        setIsLabelMenuOpen(false)
-      }
-      
-      if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(event.target as Node) && 
-          attachmentButtonRef.current && !attachmentButtonRef.current.contains(event.target as Node)) {
-        setIsAttachmentMenuOpen(false)
-      }
-    }
-    
-    // Close on scroll of the modal content to prevent "stuck" popover
-    const handleScroll = () => {
-        // Only close if not dragging and not in a state where we might want to keep it
-        if (isLabelMenuOpen && !isDragging) setIsLabelMenuOpen(false)
-        if (isAttachmentMenuOpen) setIsAttachmentMenuOpen(false)
+  const appendActivity = (message: string, type: Activity['type'] = 'system', explicitText?: string) => {
+    if (!actor) {
+      return
     }
 
-    document.addEventListener("mousedown", handleClickOutside)
-    window.addEventListener("resize", () => {
-        setIsLabelMenuOpen(false)
-        setIsAttachmentMenuOpen(false)
-    })
-    
-    const modalContent = modalContentRef.current
-    if (modalContent) {
-        modalContent.addEventListener("scroll", handleScroll)
+    const activity: Activity = {
+      id: createId('act'),
+      type,
+      actorId: actor.id,
+      actorName: actor.name,
+      actorInitials: actor.initials,
+      message: explicitText ?? message,
+      createdAt: new Date().toISOString()
     }
 
-    return () => {
-        document.removeEventListener("mousedown", handleClickOutside)
-        window.removeEventListener("resize", () => {
-            setIsLabelMenuOpen(false)
-            setIsAttachmentMenuOpen(false)
-        })
-        if (modalContent) {
-            modalContent.removeEventListener("scroll", handleScroll)
-        }
+    const nextActivities = [activity, ...cardState.activities]
+    setCardState((prev) => ({ ...prev, activities: nextActivities }))
+    onUpdate({ activities: nextActivities })
+  }
+
+  const updateCard = (updates: Partial<CardData>, activityMessage?: string) => {
+    const nextState = {
+      ...cardState,
+      ...updates,
+      updatedAt: new Date().toISOString()
     }
-  }, [isOpen, isLabelMenuOpen, isDragging, isAttachmentMenuOpen])
 
-  const handleOpenLabelMenu = () => {
-      if (isLabelMenuOpen) {
-          setIsLabelMenuOpen(false)
-          return
-      }
-      setIsAttachmentMenuOpen(false) // Close other menus
-      
-      if (labelButtonRef.current) {
-          const rect = labelButtonRef.current.getBoundingClientRect()
-          
-          let left = rect.left
-          const menuWidth = 304
-          const screenWidth = window.innerWidth
-          
-          if (left + menuWidth > screenWidth) {
-              left = screenWidth - menuWidth - 16
-          }
+    setCardState(nextState)
+    onUpdate({ ...updates, updatedAt: nextState.updatedAt })
 
-          setPopoverPosition({
-              top: rect.bottom + 8,
-              left: left
-          })
-          setLabelMenuMode('list')
-          setIsLabelMenuOpen(true)
-      }
+    if (activityMessage) {
+      appendActivity(activityMessage)
+    }
   }
 
-  const handleOpenAttachmentMenu = () => {
-      if (isAttachmentMenuOpen) {
-          setIsAttachmentMenuOpen(false)
-          return
-      }
-      setIsLabelMenuOpen(false) // Close other menus
-      
-      if (attachmentButtonRef.current) {
-          const rect = attachmentButtonRef.current.getBoundingClientRect()
-          setPopoverPosition({
-              top: rect.bottom + 8,
-              left: rect.left
-          })
-          setIsAttachmentMenuOpen(true)
-      }
+  const handleTitleSave = (nextTitle: string) => {
+    const clean = nextTitle.trim()
+    if (!clean || clean === cardState.title) {
+      setIsEditingTitle(false)
+      return
+    }
+
+    updateCard({ title: clean }, `renomeou o cartao para "${clean}"`)
+    setIsEditingTitle(false)
   }
 
-  const handleFileSelect = () => {
-      console.log("Opening file dialog...");
-      fileInputRef.current?.click()
-  }
+  const handleDescriptionSave = (nextDescription: string) => {
+    if (nextDescription === cardState.description) {
+      setIsEditingDescription(false)
+      return
+    }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files.length > 0) {
-          console.log("Files selected:", e.target.files.length);
-          const files = Array.from(e.target.files)
-          
-          setIsAttachmentMenuOpen(false)
-
-          for (const file of files) {
-              try {
-                  console.log("Processing file:", file.name);
-                  // 1. Calculate Dominant Color locally (avoids CORS issues)
-                  const localUrl = URL.createObjectURL(file)
-                  const dominantColor = await getDominantColor(localUrl)
-                  URL.revokeObjectURL(localUrl)
-
-                  // 2. Upload to Firebase
-                  const downloadURL = await uploadFile(file)
-                  
-                  const newAttachment: Attachment = {
-                      id: Date.now().toString() + Math.random().toString(),
-                      name: file.name,
-                      url: downloadURL, // Firebase URL
-                      date: new Date().toLocaleDateString('pt-BR'),
-                      isCover: false,
-                      dominantColor
-                  }
-                  
-                  // Update State safely
-                  setAttachments(prev => {
-                      const updated = [...prev, newAttachment]
-                      if (onUpdate) onUpdate({ attachments: updated })
-                      return updated
-                  })
-              } catch (error) {
-                  console.error("Failed to upload file:", file.name, error);
-                  // Não alerta mais erro, pois o serviço já tratou com fallback ou lançou erro real
-              }
-          }
-          
-          // Reset input to allow selecting the same file again
-          if (fileInputRef.current) {
-              fileInputRef.current.value = ''
-          }
-      }
-  }
-
-  const handleMakeCover = async (attachmentId: string) => {
-      const attachmentToCover = attachments.find(a => a.id === attachmentId)
-      let color = attachmentToCover?.dominantColor
-
-      // Lazy load color if missing
-      if (attachmentToCover && !color) {
-          color = await getDominantColor(attachmentToCover.url)
-      }
-
-      const newAttachments = attachments.map(a => {
-        if (a.id === attachmentId) {
-            return { ...a, isCover: !a.isCover, dominantColor: color || a.dominantColor }
-        }
-        return { ...a, isCover: false }
-      })
-      
-      const hasCover = newAttachments.some(a => a.isCover)
-      
-      setAttachments(newAttachments)
-      if (onUpdate) {
-          onUpdate({ 
-              attachments: newAttachments,
-              cover: hasCover // Update the card's cover status
-          })
-      }
-  }
-
-  const handleCreateLabel = () => {
-      if (!createLabelTitle.trim()) return
-
-      const newLabel: Label = {
-          id: Date.now().toString(),
-          text: createLabelTitle.toUpperCase(),
-          color: createLabelColor
-      }
-      
-      const newAvailableLabels = [...availableLabels, newLabel]
-      onUpdateAvailableLabels(newAvailableLabels)
-      
-      setLabels([...labels, newLabel])
-      setCreateLabelTitle("")
-      setLabelMenuMode('list')
-  }
-
-  const handleEditLabel = (label: Label) => {
-      setEditingLabelId(label.id)
-      setCreateLabelTitle(label.text)
-      setCreateLabelColor(label.color)
-      setLabelMenuMode('edit')
-  }
-
-  const handleUpdateLabel = () => {
-      if (!editingLabelId || !createLabelTitle.trim()) return
-
-      const updatedLabel = {
-          id: editingLabelId,
-          text: createLabelTitle.toUpperCase(),
-          color: createLabelColor
-      }
-
-      const newAvailableLabels = availableLabels.map(l => l.id === editingLabelId ? updatedLabel : l)
-      onUpdateAvailableLabels(newAvailableLabels)
-
-      setLabels(labels.map(l => l.id === editingLabelId ? updatedLabel : l))
-      setLabelMenuMode('list')
-      setEditingLabelId(null)
-      setCreateLabelTitle("")
-  }
-
-  const handleDeleteLabel = () => {
-      if (!editingLabelId) return
-
-      const newAvailableLabels = availableLabels.filter(l => l.id !== editingLabelId)
-      onUpdateAvailableLabels(newAvailableLabels)
-
-      setLabels(labels.filter(l => l.id !== editingLabelId))
-      setLabelMenuMode('list')
-      setEditingLabelId(null)
-      setCreateLabelTitle("")
-  }
-
-  if (!isOpen) return null
-
-  const handleSaveDescription = () => {
+    updateCard({ description: nextDescription }, 'atualizou o briefing da demanda')
     setIsEditingDescription(false)
   }
 
-  const handleAddComment = () => {
-    if (!commentText.trim()) return
-
-    const newActivity: Activity = {
-      id: Date.now().toString(),
-      user: 'Eu',
-      userInitials: 'EV',
-      action: commentText,
-      date: new Date().toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-      type: 'comment'
+  const handleListChange = (nextListId: string) => {
+    if (nextListId === cardState.listId) {
+      return
     }
 
-    setActivities([newActivity, ...activities])
-    setCommentText("")
-  }
-
-  const handleTitleSubmit = () => {
-      setIsEditingTitle(false)
-      if (editedTitle !== title && onUpdate) {
-          onUpdate({ title: editedTitle })
-      }
-  }
-
-  const handleDeleteAttachment = (attachmentId: string) => {
-      const newAttachments = attachments.filter(a => a.id !== attachmentId)
-      setAttachments(newAttachments)
-      if (onUpdate) onUpdate({ attachments: newAttachments })
+    const listName = listOptions.find((list) => list.id === nextListId)?.title ?? 'Lista'
+    onMoveToList(nextListId)
+    updateCard({ listId: nextListId }, `moveu o cartao para a lista ${listName}`)
   }
 
   const toggleLabel = (label: Label) => {
-    const exists = labels.find(l => l.id === label.id)
-    let newLabels
-    if (exists) {
-        newLabels = labels.filter(l => l.id !== label.id)
-    } else {
-        newLabels = [...labels, label]
-    }
-    setLabels(newLabels)
-    if (onUpdate) onUpdate({ labels: newLabels })
+    const exists = cardState.labels.some((item) => item.id === label.id)
+    const nextLabels = exists ? cardState.labels.filter((item) => item.id !== label.id) : [...cardState.labels, label]
+    updateCard({ labels: nextLabels })
   }
 
-  const filteredLabels = availableLabels.filter(l => 
-    l.text.toLowerCase().includes(labelSearch.toLowerCase())
-  )
+  const createNewLabel = () => {
+    const name = newLabelName.trim()
+    if (!name) {
+      return
+    }
 
-  const coverAttachment = attachments.find(a => a.isCover)
-  const coverUrl = coverAttachment ? coverAttachment.url : (hasCover && attachments.length === 0 ? "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=1000&auto=format&fit=crop" : null)
+    const label: Label = {
+      id: createId('label'),
+      text: name,
+      color: newLabelColor
+    }
 
-  return createPortal(
-    <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-      <div 
-        className="fixed inset-0 z-0" 
-        onClick={onClose} 
-        aria-hidden="true"
-      />
-      <div className="relative z-10 w-full max-w-5xl rounded-xl bg-[#1e1e1e] shadow-2xl ring-1 ring-white/10 flex flex-col overflow-hidden max-h-[90vh]">
-        
-        {/* Cover Image */}
-        {coverUrl && (
-          <div 
-             className="relative w-full h-64 group flex items-center justify-center overflow-hidden cursor-pointer"
-             style={{ backgroundColor: coverAttachment?.dominantColor || '#161a1d' }}
-             onClick={() => {
-                 const idx = attachments.findIndex(a => a.isCover)
-                 if (idx >= 0) setLightboxIndex(idx)
-             }}
-          >
-             {/* Main Image */}
-             <img 
-                src={coverUrl} 
-                alt="Cover" 
-                className="relative h-full w-full object-contain z-10 transition-transform duration-200 group-hover:scale-[1.02]"
-             />
+    const nextAvailable = [...availableLabels, label]
+    onUpdateAvailableLabels(nextAvailable)
+    updateCard({ labels: [...cardState.labels, label] }, `criou a etiqueta ${name}`)
 
-             <div className="absolute top-4 right-14 flex gap-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button 
-                    variant="secondary" 
-                    size="sm" 
-                    className="bg-black/50 hover:bg-black/70 text-white border-none gap-2"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        // Optional: remove cover or change cover logic here if needed, 
-                        // but user just asked for preview. 
-                        // The button says "Capa" (Cover), which usually implies "This is the cover".
-                        // Maybe we should allow removing cover here?
-                        if (coverAttachment) handleMakeCover(coverAttachment.id)
-                    }}
-                >
-                    <ImageIcon className="size-4" />
-                    {coverAttachment?.isCover ? "Remover Capa" : "Capa"}
-                </Button>
-             </div>
+    setNewLabelName('')
+    setNewLabelColor(LABEL_COLOR_OPTIONS[0])
+  }
+
+  const toggleMember = (memberId: string) => {
+    const exists = cardState.memberIds.includes(memberId)
+    const nextMembers = exists ? cardState.memberIds.filter((id) => id !== memberId) : [...cardState.memberIds, memberId]
+
+    const memberName = selectedMemberMap.get(memberId)?.name ?? 'Membro'
+    updateCard({ memberIds: nextMembers }, exists ? `removeu ${memberName} do cartao` : `adicionou ${memberName} ao cartao`)
+  }
+
+  const handleDueDateSave = () => {
+    if (!dueDateInput) {
+      updateCard({ dueDate: undefined }, 'removeu a data de entrega')
+      return
+    }
+
+    const value = dueTimeInput ? `${dueDateInput}T${dueTimeInput}:00` : `${dueDateInput}T00:00:00`
+    const parsed = new Date(value)
+
+    if (Number.isNaN(parsed.getTime())) {
+      return
+    }
+
+    updateCard({ dueDate: parsed.toISOString() }, `definiu prazo para ${formatDateTime(parsed.toISOString())}`)
+  }
+
+  const addChecklist = () => {
+    const title = newChecklistTitle.trim()
+    if (!title) {
+      return
+    }
+
+    const nextChecklist: Checklist = {
+      id: createId('checklist'),
+      title,
+      items: []
+    }
+
+    updateCard({ checklists: [...cardState.checklists, nextChecklist] }, `criou checklist ${title}`)
+    setNewChecklistTitle('')
+  }
+
+  const updateChecklist = (checklistId: string, updates: Partial<Checklist>) => {
+    const nextChecklists = cardState.checklists.map((checklist) => (checklist.id === checklistId ? { ...checklist, ...updates } : checklist))
+    updateCard({ checklists: nextChecklists })
+  }
+
+  const removeChecklist = (checklistId: string) => {
+    const nextChecklists = cardState.checklists.filter((checklist) => checklist.id !== checklistId)
+    updateCard({ checklists: nextChecklists }, 'removeu um checklist')
+  }
+
+  const addChecklistItem = (checklistId: string) => {
+    const content = (checklistDraftItems[checklistId] ?? '').trim()
+    if (!content) {
+      return
+    }
+
+    const checklist = cardState.checklists.find((item) => item.id === checklistId)
+    if (!checklist) {
+      return
+    }
+
+    const nextItem: ChecklistItem = {
+      id: createId('checkitem'),
+      content,
+      isDone: false
+    }
+
+    updateChecklist(checklistId, { items: [...checklist.items, nextItem] })
+    setChecklistDraftItems((prev) => ({ ...prev, [checklistId]: '' }))
+  }
+
+  const toggleChecklistItem = (checklistId: string, itemId: string) => {
+    const checklist = cardState.checklists.find((item) => item.id === checklistId)
+    if (!checklist) {
+      return
+    }
+
+    const nextItems = checklist.items.map((item) => (item.id === itemId ? { ...item, isDone: !item.isDone } : item))
+    updateChecklist(checklistId, { items: nextItems })
+  }
+
+  const removeChecklistItem = (checklistId: string, itemId: string) => {
+    const checklist = cardState.checklists.find((item) => item.id === checklistId)
+    if (!checklist) {
+      return
+    }
+
+    const nextItems = checklist.items.filter((item) => item.id !== itemId)
+    updateChecklist(checklistId, { items: nextItems })
+  }
+
+  const validateUrl = (value: string): boolean => {
+    try {
+      const parsed = new URL(value)
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+    } catch {
+      return false
+    }
+  }
+
+  const submitLink = () => {
+    const title = linkDraft.title.trim()
+    const url = linkDraft.url.trim()
+
+    if (!title || !url) {
+      setLinkError('Preencha titulo e URL.')
+      return
+    }
+
+    if (!validateUrl(url)) {
+      setLinkError('URL invalida.')
+      return
+    }
+
+    setLinkError('')
+
+    if (linkDraft.id) {
+      const nextLinks = cardState.links.map((link) => (link.id === linkDraft.id ? { ...link, title, url, type: linkDraft.type } : link))
+      updateCard({ links: nextLinks }, `editou link ${title}`)
+    } else {
+      const link: LinkAttachment = {
+        id: createId('link'),
+        title,
+        url,
+        type: linkDraft.type,
+        createdAt: new Date().toISOString()
+      }
+
+      updateCard({ links: [...cardState.links, link] }, `adicionou link ${title}`)
+    }
+
+    setLinkDraft({ title: '', url: '', type: 'other' })
+    setShowLinksPanel(false)
+  }
+
+  const editLink = (link: LinkAttachment) => {
+    setLinkDraft({ id: link.id, title: link.title, url: link.url, type: link.type })
+    setShowLinksPanel(true)
+  }
+
+  const removeLink = (linkId: string) => {
+    const target = cardState.links.find((link) => link.id === linkId)
+    const nextLinks = cardState.links.filter((link) => link.id !== linkId)
+    updateCard({ links: nextLinks }, target ? `removeu link ${target.title}` : 'removeu link')
+  }
+
+  const saveComment = () => {
+    const text = commentText.trim()
+    if (!text || !actor) {
+      return
+    }
+
+    const activity: Activity = {
+      id: createId('activity'),
+      type: 'comment',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorInitials: actor.initials,
+      message: text,
+      createdAt: new Date().toISOString()
+    }
+
+    const nextActivities = [activity, ...cardState.activities]
+    setCardState((prev) => ({ ...prev, activities: nextActivities }))
+    onUpdate({ activities: nextActivities })
+    setCommentText('')
+  }
+
+  const dueStatus = getDateStatus(cardState.dueDate, cardState.isCompleted)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+      <div className="grid h-[92vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#141414] md:grid-cols-[1fr_340px]">
+        <section className="overflow-y-auto border-r border-white/10 p-6">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              {isEditingTitle ? (
+                <Input
+                  defaultValue={cardState.title}
+                  autoFocus
+                  className="h-11 border-white/20 bg-black/50 text-3xl font-bold"
+                  onBlur={(event) => handleTitleSave(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      handleTitleSave((event.target as HTMLInputElement).value)
+                    }
+                  }}
+                />
+              ) : (
+                <button type="button" onClick={() => setIsEditingTitle(true)} className="text-left text-4xl font-bold leading-tight text-foreground hover:text-primary">
+                  {cardState.title}
+                </button>
+              )}
+
+              <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span>na lista</span>
+                <select value={cardState.listId} onChange={(event) => handleListChange(event.target.value)} className="rounded border border-white/15 bg-black/40 px-2 py-1 text-sm text-foreground" aria-label="Selecionar lista">
+                  {listOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.title}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-muted-foreground/70">Atual: {listTitle}</span>
+              </div>
+            </div>
+
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-muted-foreground hover:bg-white/10 hover:text-foreground" aria-label="Fechar modal">
+              <X className="size-5" />
+            </Button>
           </div>
-        )}
 
-        {/* Close Button */}
-        <button 
-          onClick={onClose}
-          className="absolute top-4 right-4 z-10 rounded-full bg-black/50 p-2 text-white hover:bg-black/70 transition-colors"
-        >
-          <X className="size-5" />
-        </button>
-
-        <div className="flex flex-col md:flex-row h-full overflow-hidden">
-            {/* Main Content (Left) */}
-            <div ref={modalContentRef} className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
-                
-                {/* Header Section */}
-                <div className="mb-8">
-                    <div className="flex items-start gap-3 mb-4">
-                        <div 
-                            onClick={handleToggleCompleted}
-                            className={`mt-1 cursor-pointer transition-colors ${isCompleted ? 'text-green-500' : 'text-muted-foreground hover:text-foreground'}`}
-                        >
-                            {isCompleted ? <CheckCircle2 className="size-5" /> : <Circle className="size-5" />}
-                        </div>
-                        <div className="flex-1">
-                            {isEditingTitle ? (
-                                <Input
-                                    autoFocus
-                                    value={editedTitle}
-                                    onChange={(e) => setEditedTitle(e.target.value)}
-                                    onBlur={handleTitleSubmit}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleTitleSubmit()
-                                    }}
-                                    className="text-xl font-bold text-foreground mb-1 leading-tight h-auto py-1 px-2 bg-[#222] border-blue-500 rounded focus-visible:ring-0"
-                                />
-                            ) : (
-                                <h2 
-                                    onClick={() => setIsEditingTitle(true)}
-                                    className="text-xl font-bold text-foreground mb-1 leading-tight cursor-text hover:bg-white/5 rounded px-2 -ml-2 py-1 transition-colors border border-transparent hover:border-white/10"
-                                >
-                                    {editedTitle || "Sem título"}
-                                </h2>
-                            )}
-                            <p className="text-sm text-muted-foreground">
-                                na lista <span className="underline cursor-pointer hover:text-primary">APROVADOS</span>
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* Quick Actions Bar */}
-                    <div className="pl-10 flex flex-wrap gap-2 mb-6">
-                        <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
-                            <Plus className="size-4" /> Adicionar
-                        </Button>
-                         <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
-                            <CheckSquare className="size-4" /> Checklist
-                        </Button>
-                        <Button 
-                            ref={dateButtonRef}
-                            onClick={() => {
-                                if (dateButtonRef.current) {
-                                    const rect = dateButtonRef.current.getBoundingClientRect()
-                                    const popoverHeight = 500
-                                    const windowHeight = window.innerHeight
-                                    
-                                    let top = rect.bottom + 8
-                                    if (top + popoverHeight > windowHeight) {
-                                        top = rect.top - popoverHeight - 8
-                                    }
-                                    setPopoverPosition({ top, left: rect.left })
-                                }
-                                setIsDateMenuOpen(true)
-                            }}
-                            variant="outline" 
-                            size="sm" 
-                            className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8"
-                        >
-                            <Clock className="size-4" /> Datas
-                        </Button>
-                        <Button variant="outline" size="sm" className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8">
-                            <Users className="size-4" /> Membros
-                        </Button>
-                        <Button 
-                            ref={attachmentButtonRef}
-                            onClick={handleOpenAttachmentMenu}
-                            variant="outline" 
-                            size="sm" 
-                            className="bg-transparent border-white/10 hover:bg-white/5 text-muted-foreground gap-2 h-8"
-                        >
-                            <Paperclip className="size-4" /> Anexo
-                        </Button>
-                        <input 
-                            type="file" 
-                            ref={fileInputRef} 
-                            className="hidden" 
-                            onChange={handleFileChange}
-                            multiple
-                        />
-                    </div>
-
-                    {/* Metadata Grid */}
-                    <div className="pl-10 grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-                        <div>
-                            <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Etiquetas</h3>
-                            <div className="flex flex-wrap gap-2 items-center relative">
-                                {labels.map(label => (
-                                    <div 
-                                        key={label.id}
-                                        className="flex items-center gap-1 px-3 py-1 rounded text-xs font-bold hover:opacity-90 cursor-pointer text-white shadow-sm"
-                                        style={{ backgroundColor: label.color }}
-                                    >
-                                        {label.text}
-                                    </div>
-                                ))}
-                                
-                                {/* Add Label Button & Popover */}
-                                <div className="relative">
-                                    <button 
-                                        ref={labelButtonRef}
-                                        onClick={handleOpenLabelMenu}
-                                        className="size-8 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center text-muted-foreground transition-colors"
-                                    >
-                                        <Plus className="size-4" />
-                                    </button>
-
-                                    {/* Label Popover Menu - Rendered in Portal */}
-                                    {isLabelMenuOpen && createPortal(
-                                        <div 
-                                            ref={labelMenuRef}
-                                            style={{ 
-                                                top: popoverPosition.top, 
-                                                left: popoverPosition.left,
-                                                position: 'fixed'
-                                            }}
-                                            className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
-                                        >
-                                            {/* Header - Draggable Area */}
-                                            <div 
-                                                onMouseDown={handleMouseDown}
-                                                className="flex items-center justify-between p-3 border-b border-white/10 relative cursor-move select-none"
-                                            >
-                                                {labelMenuMode !== 'list' ? (
-                                                    <button 
-                                                        onClick={() => {
-                                                            setLabelMenuMode('list')
-                                                            setCreateLabelTitle("")
-                                                            setEditingLabelId(null)
-                                                        }}
-                                                        className="size-8 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                                                    >
-                                                        <ChevronLeft className="size-4" />
-                                                    </button>
-                                                ) : (
-                                                    <div className="size-8" />
-                                                )}
-                                                
-                                                <span className="text-sm font-semibold text-gray-300">
-                                                    {labelMenuMode === 'create' ? 'Criar Etiqueta' : 
-                                                     labelMenuMode === 'edit' ? 'Editar etiqueta' : 'Etiquetas'}
-                                                </span>
-                                                
-                                                <button 
-                                                    onClick={() => setIsLabelMenuOpen(false)}
-                                                    className="size-8 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                                                >
-                                                    <X className="size-4" />
-                                                </button>
-                                            </div>
-
-                                            {/* Content */}
-                                            <div className="p-3">
-                                                {labelMenuMode === 'list' ? (
-                                                    <>
-                                                        <Input 
-                                                            autoFocus
-                                                            value={labelSearch}
-                                                            onChange={(e) => setLabelSearch(e.target.value)}
-                                                            placeholder="Buscar etiquetas..." 
-                                                            className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9 mb-4 focus-visible:ring-offset-0 focus-visible:ring-[#85b8ff]"
-                                                        />
-
-                                                        <div className="mb-2">
-                                                            <h4 className="text-xs font-semibold text-gray-400 mb-2">Etiquetas</h4>
-                                                            <div className="space-y-1 max-h-75 overflow-y-auto custom-scrollbar pr-1">
-                                                                {filteredLabels.map(label => {
-                                                                    const isSelected = labels.some(l => l.id === label.id)
-                                                                    return (
-                                                                        <div key={label.id} className="flex items-center gap-2 group">
-                                                                            <div 
-                                                                                onClick={() => toggleLabel(label)}
-                                                                                className="flex-1 flex items-center gap-2 cursor-pointer"
-                                                                            >
-                                                                                {/* Checkbox */}
-                                                                                <div className={`size-4 border-2 rounded-sm flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-white/20 group-hover:border-white/40'}`}>
-                                                                                    {isSelected && <div className="bg-white size-2 rounded-[1px]" />}
-                                                                                </div>
-                                                                                
-                                                                                {/* Label Bar */}
-                                                                                <div 
-                                                                                    className="flex-1 h-8 rounded px-3 flex items-center text-sm font-bold text-white shadow-sm hover:opacity-90 transition-opacity"
-                                                                                    style={{ backgroundColor: label.color }}
-                                                                                >
-                                                                                    {label.text}
-                                                                                </div>
-                                                                            </div>
-                                                                            <button 
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation()
-                                                                                    handleEditLabel(label)
-                                                                                }}
-                                                                                className="size-8 flex items-center justify-center text-gray-400 hover:bg-white/10 rounded"
-                                                                            >
-                                                                                <Pencil className="size-4" />
-                                                                            </button>
-                                                                        </div>
-                                                                    )
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <Button 
-                                                            onClick={() => {
-                                                                setLabelMenuMode('create')
-                                                                setCreateLabelTitle("")
-                                                                setCreateLabelColor(LABEL_COLORS[12])
-                                                            }}
-                                                            className="w-full bg-white/10 hover:bg-white/20 text-gray-300 border-none justify-start h-9 mt-2 text-sm font-normal"
-                                                        >
-                                                            Criar uma nova etiqueta
-                                                        </Button>
-                                                        <Button className="w-full bg-transparent hover:bg-white/10 text-gray-300 border-none justify-start h-9 mt-1 text-sm font-normal">
-                                                            Mostrar mais etiquetas
-                                                        </Button>
-                                                        
-                                                        <div className="mt-3 pt-3 border-t border-white/10">
-                                                            <Button className="w-full bg-white/5 hover:bg-white/10 text-gray-400 border-none h-auto py-2 px-3 text-xs font-normal whitespace-normal text-left">
-                                                                Habilitar o modo compatível para usuários com daltonismo
-                                                            </Button>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <div className="space-y-4">
-                                                        {/* Preview */}
-                                                        <div className="flex justify-center bg-[#1c2025] rounded p-8">
-                                                            <div 
-                                                                className="h-8 rounded px-4 flex items-center text-sm font-bold text-white shadow-sm min-w-30 justify-center"
-                                                                style={{ backgroundColor: createLabelColor }}
-                                                            >
-                                                                {createLabelTitle || "Exemplo"}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Title Input */}
-                                                        <div>
-                                                            <h4 className="text-xs font-semibold text-gray-400 mb-1.5">Título</h4>
-                                                            <Input 
-                                                                autoFocus
-                                                                value={createLabelTitle}
-                                                                onChange={(e) => setCreateLabelTitle(e.target.value)}
-                                                                className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9 focus-visible:ring-offset-0 focus-visible:ring-[#85b8ff]"
-                                                            />
-                                                        </div>
-
-                                                        {/* Color Grid */}
-                                                        <div>
-                                                            <h4 className="text-xs font-semibold text-gray-400 mb-1.5">Selecionar uma cor</h4>
-                                                            <div className="grid grid-cols-5 gap-2">
-                                                                {LABEL_COLORS.map(color => (
-                                                                    <div 
-                                                                        key={color}
-                                                                        onClick={() => setCreateLabelColor(color)}
-                                                                        className={`h-8 rounded cursor-pointer transition-transform hover:scale-105 ${createLabelColor === color ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-[#282e33]' : ''}`}
-                                                                        style={{ backgroundColor: color }}
-                                                                    />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Actions */}
-                                                        <div className="pt-2 border-t border-white/10 space-y-2">
-                                                             <Button 
-                                                                variant="secondary" 
-                                                                className="w-full bg-white/5 hover:bg-white/10 text-white border-none h-9"
-                                                                onClick={() => setCreateLabelColor('#282e33')}
-                                                            >
-                                                                <X className="size-4 mr-2" /> Remover cor
-                                                            </Button>
-                                                            
-                                                            {labelMenuMode === 'create' ? (
-                                                                <Button 
-                                                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white h-9"
-                                                                    onClick={handleCreateLabel}
-                                                                    disabled={!createLabelTitle}
-                                                                >
-                                                                    Criar
-                                                                </Button>
-                                                            ) : (
-                                                                <div className="flex gap-2">
-                                                                    <Button 
-                                                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-9"
-                                                                        onClick={handleUpdateLabel}
-                                                                        disabled={!createLabelTitle}
-                                                                    >
-                                                                        Salvar
-                                                                    </Button>
-                                                                    <Button 
-                                                                        className="bg-red-500/80 hover:bg-red-600 text-white h-9 px-3"
-                                                                        onClick={handleDeleteLabel}
-                                                                    >
-                                                                        <Trash2 className="size-4" /> Excluir
-                                                                    </Button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>,
-                                        document.body
-                                    )}
-
-                                    {/* Attachment Popover Menu - Rendered in Portal */}
-                                    {isAttachmentMenuOpen && createPortal(
-                                        <div 
-                                            ref={attachmentMenuRef}
-                                            style={{ 
-                                                top: popoverPosition.top, 
-                                                left: popoverPosition.left,
-                                                position: 'fixed'
-                                            }}
-                                            className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
-                                        >
-                                            {/* Header */}
-                                            <div className="flex items-center justify-between p-3 border-b border-white/10">
-                                                <div className="size-8" />
-                                                <span className="text-sm font-semibold text-gray-300">Anexar</span>
-                                                <button 
-                                                    onClick={() => setIsAttachmentMenuOpen(false)}
-                                                    className="size-8 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                                                >
-                                                    <X className="size-4" />
-                                                </button>
-                                            </div>
-
-                                            {/* Content */}
-                                            <div className="p-3 space-y-4">
-                                                <div>
-                                                    <h4 className="text-xs font-semibold text-gray-400 mb-2">Anexe um arquivo de seu computador</h4>
-                                                    <p className="text-xs text-gray-500 mb-3">
-                                                        Você também pode arrastar e soltar arquivos para carregá-los.
-                                                    </p>
-                                                    <Button 
-                                                    onClick={handleFileSelect}
-                                                    variant="secondary" 
-                                                    className="w-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white"
-                                                >
-                                                    Escolher um arquivo
-                                                </Button>
-                                            </div>
-
-                                            {/* 
-                                            <div>
-                                                <label className="text-xs font-semibold text-gray-400 mb-1 block">Search or paste a link <span className="text-red-500">*</span></label>
-                                                <Input 
-                                                    placeholder="Find recent links or paste a new link..." 
-                                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
-                                                />
-                                            </div>
-
-                                            <div>
-                                                <label className="text-xs font-semibold text-gray-400 mb-1 block">Display text (optional)</label>
-                                                <Input 
-                                                    placeholder="Text to display" 
-                                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
-                                                />
-                                            </div>
-
-                                            <p className="text-xs text-gray-500">Give this link a title or description</p>
-                                            */}
-
-                                            <div>
-                                                <h4 className="text-xs font-semibold text-gray-400 mb-2">Visualizados Recentemente</h4>
-                                                    <div className="space-y-1">
-                                                        {[
-                                                            { title: 'SEQ STORIES - 5 Documentários p...', subtitle: '01 VENDE-C • Viewed 6 seconds ago' },
-                                                            { title: 'CAPA DE TREINAMENTO CORP - IF...', subtitle: '01 VENDE-C • Viewed 4 minutes ago' },
-                                                            { title: 'CAPA TREINAMENTO CORP - DSV', subtitle: '01 VENDE-C • Viewed 10 minutes ago' },
-                                                            { title: 'GROWTH', subtitle: 'Time Foda • Viewed 1 hour ago' },
-                                                            { title: '03 PERFORMAN-C', subtitle: 'Time Foda • Viewed 1 hour ago' }
-                                                        ].map((item, i) => (
-                                                            <div key={i} className="flex items-start gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                                                                <Monitor className="size-4 text-blue-400 mt-1 shrink-0" />
-                                                                <div className="overflow-hidden">
-                                                                    <div className="text-sm text-gray-300 truncate font-medium">{item.title}</div>
-                                                                    <div className="text-xs text-gray-500 truncate">{item.subtitle}</div>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="flex justify-end gap-2 pt-2">
-                                                     <Button 
-                                                        variant="ghost" 
-                                                        onClick={() => setIsAttachmentMenuOpen(false)}
-                                                        className="text-gray-400 hover:text-white hover:bg-white/10"
-                                                    >
-                                                        Cancelar
-                                                    </Button>
-                                                    {/* 
-                                                    <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-                                                        Insert
-                                                    </Button>
-                                                    */}
-                                                </div>
-                                            </div>
-                                        </div>,
-                                        document.body
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        {dueDate && (
-                            <div>
-                                <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Data Entrega</h3>
-                                <div className="flex items-center gap-2">
-                                    <div 
-                                        ref={dateDisplayRef}
-                                        onClick={() => {
-                                            if (dateDisplayRef.current) {
-                                                const rect = dateDisplayRef.current.getBoundingClientRect()
-                                                setPopoverPosition({ top: rect.bottom + 8, left: rect.left })
-                                            }
-                                            setIsDateMenuOpen(true)
-                                        }}
-                                        className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded text-sm text-foreground hover:bg-white/10 cursor-pointer transition-colors"
-                                    >
-                                        <div onClick={(e) => {
-                                            e.stopPropagation()
-                                            setIsCompleted(!isCompleted)
-                                        }} className={`size-4 border rounded-sm flex items-center justify-center mr-1 ${isCompleted ? 'bg-green-500 border-green-500 text-black' : 'border-muted-foreground hover:border-foreground'}`}>
-                                            {isCompleted && <CheckSquare className="size-3" />}
-                                        </div>
-                                        
-                                        <span>
-                                            {dueDate.getDate()} de {dueDate.toLocaleString('pt-BR', { month: 'short' })}
-                                            {dueDate.getHours() !== 0 && `, ${dueDate.getHours().toString().padStart(2, '0')}:${dueDate.getMinutes().toString().padStart(2, '0')}`}
-                                        </span>
-                                        
-                                        {isCompleted ? (
-                                            <span className="bg-[#bbf7d0] text-green-900 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Concluído</span>
-                                        ) : (
-                                            new Date() > dueDate ? (
-                                                <span className="bg-red-900/50 text-red-200 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Atrasado</span>
-                                            ) : (
-                                                (dueDate.getTime() - new Date().getTime()) < 48 * 60 * 60 * 1000 && ( // 48h warning
-                                                    <span className="bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-1.5 py-0.5 rounded ml-1 uppercase">Entregar em breve</span>
-                                                )
-                                            )
-                                        )}
-                                        <ChevronRight className="size-3 text-muted-foreground ml-1" />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Description */}
-                    <div className="pl-10 mb-8">
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2 text-foreground font-semibold">
-                                <AlignLeft className="size-5 text-muted-foreground" />
-                                <h3>Descrição</h3>
-                            </div>
-                            {!isEditingDescription && (
-                                <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    onClick={() => setIsEditingDescription(true)}
-                                    className="h-7 text-muted-foreground hover:text-foreground"
-                                >
-                                    Editar
-                                </Button>
-                            )}
-                        </div>
-                        <div className="pl-0">
-                            {isEditingDescription ? (
-                                <div className="space-y-2">
-                                    <textarea
-                                        ref={descriptionRef}
-                                        value={description}
-                                        onChange={(e) => setDescription(e.target.value)}
-                                        className="w-full min-h-30 bg-[#222] border border-white/10 rounded-md p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
-                                        placeholder="Adicione uma descrição mais detalhada..."
-                                    />
-                                    <div className="flex gap-2">
-                                        <Button size="sm" onClick={handleSaveDescription}>Salvar</Button>
-                                        <Button size="sm" variant="ghost" onClick={() => setIsEditingDescription(false)}>Cancelar</Button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div 
-                                    onClick={() => setIsEditingDescription(true)}
-                                    className="bg-white/5 border border-white/10 rounded-md p-4 text-sm text-foreground/90 min-h-20 cursor-pointer hover:bg-white/10 transition-colors"
-                                >
-                                    {description ? (
-                                        <p className="whitespace-pre-wrap">{description}</p>
-                                    ) : (
-                                        <p className="text-muted-foreground text-xs">Adicione uma descrição mais detalhada...</p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Attachments */}
-                    {attachments.length > 0 && (
-                        <div className="pl-10 mb-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2 text-foreground font-semibold">
-                                    <Paperclip className="size-5 text-muted-foreground" />
-                                    <h3>Anexos</h3>
-                                </div>
-                                 <Button variant="ghost" size="sm" className="h-7 text-muted-foreground hover:text-foreground">Adicionar</Button>
-                            </div>
-                            
-                            <DndContext 
-                                sensors={sensors} 
-                                collisionDetection={closestCenter} 
-                                onDragEnd={handleDragEnd}
-                            >
-                                <SortableContext 
-                                    items={attachments.map(a => a.id)} 
-                                    strategy={verticalListSortingStrategy}
-                                >
-                                    <div className="space-y-3">
-                                        {attachments.map(att => (
-                                            <SortableAttachmentItem 
-                                                key={att.id} 
-                                                attachment={att} 
-                                                onDelete={() => handleDeleteAttachment(att.id)} 
-                                                onMakeCover={() => handleMakeCover(att.id)}
-                                                onView={() => {
-                                                    const idx = attachments.findIndex(a => a.id === att.id)
-                                                    setLightboxIndex(idx)
-                                                }}
-                                            />
-                                        ))}
-                                    </div>
-                                </SortableContext>
-                            </DndContext>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Sidebar (Right) - Activity & Comments */}
-            <div className="w-full md:w-96 bg-[#161616] border-l border-white/10 flex flex-col">
-                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#161616] pr-12">
-                    <h3 className="font-semibold text-foreground flex items-center gap-2">
-                        <AlignLeft className="size-4" /> Comentários e atividade
-                    </h3>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground">Ocultar detalhes</Button>
-                </div>
-                
-                {/* Activity Feed */}
-                <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6">
-                    {/* Comment Input */}
-                    <div className="flex gap-3 mb-6">
-                        <div className="size-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-xs">EV</div>
-                        <div className="flex-1">
-                            <div className="bg-[#222] border border-white/10 rounded-md p-2 focus-within:ring-1 focus-within:ring-primary/50 transition-all">
-                                <input 
-                                    type="text" 
-                                    value={commentText}
-                                    onChange={(e) => setCommentText(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
-                                    placeholder="Escreva um comentário..." 
-                                    className="w-full bg-transparent border-none text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                                />
-                                <div className="flex justify-between items-center mt-2">
-                                   <div className="flex gap-1">
-                                        {/* Simple mock toolbar */}
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground"><Paperclip className="size-3"/></Button>
-                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground"><ImageIcon className="size-3"/></Button>
-                                   </div>
-                                   <Button 
-                                    size="sm" 
-                                    onClick={handleAddComment}
-                                    disabled={!commentText.trim()}
-                                    className="h-7 text-xs"
-                                   >
-                                    Salvar
-                                   </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Activities List */}
-                    {activities.map((activity) => (
-                        <div key={activity.id} className="flex gap-3">
-                             <div className={`size-8 rounded-full shrink-0 flex items-center justify-center text-white font-bold text-xs ${
-                                 activity.userInitials === 'EV' ? 'bg-primary' : 
-                                 activity.userInitials === 'SM' ? 'bg-blue-500' : 'bg-cyan-600'
-                             }`}>
-                                {activity.userInitials}
-                             </div>
-                             <div>
-                                <div className="text-sm text-foreground">
-                                    <span className="font-bold">{activity.user}</span> 
-                                    {activity.type === 'comment' ? (
-                                        <div className="bg-[#222] border border-white/10 rounded p-2 mt-1 text-sm">
-                                            {activity.action}
-                                        </div>
-                                    ) : (
-                                        <span> {activity.action}</span>
-                                    )}
-                                </div>
-                                <span className="text-xs text-muted-foreground hover:underline cursor-pointer block mt-1">{activity.date}</span>
-                             </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-        
-        {/* Date Picker Popover */}
-        {isDateMenuOpen && createPortal(
-            <div 
-                ref={dateMenuRef}
-                style={{ 
-                    top: popoverPosition.top, 
-                    left: popoverPosition.left,
-                    position: 'fixed'
-                }}
-                className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
+          <div className="mb-5 flex flex-wrap gap-2">
+            <Button variant="outline" className="border-white/15 bg-transparent" onClick={() => setShowLabelsPanel((prev) => !prev)}>
+              <Plus className="mr-1 size-4" /> Etiquetas
+            </Button>
+            <Button variant="outline" className="border-white/15 bg-transparent" onClick={() => setShowChecklistPanel((prev) => !prev)}>
+              <CheckSquare className="mr-1 size-4" /> Checklist
+            </Button>
+            <Button variant="outline" className="border-white/15 bg-transparent" onClick={() => setShowDatePanel((prev) => !prev)}>
+              <CalendarDays className="mr-1 size-4" /> Datas
+            </Button>
+            <Button variant="outline" className="border-white/15 bg-transparent" onClick={() => setShowMembersPanel((prev) => !prev)}>
+              <Users className="mr-1 size-4" /> Membros
+            </Button>
+            <Button variant="outline" className="border-white/15 bg-transparent" onClick={() => setShowLinksPanel((prev) => !prev)}>
+              <Link2 className="mr-1 size-4" /> Link
+            </Button>
+            <Button
+              variant={cardState.isCompleted ? 'secondary' : 'outline'}
+              className={cardState.isCompleted ? 'bg-green-700 text-white hover:bg-green-700/80' : 'border-white/15 bg-transparent'}
+              onClick={() => updateCard({ isCompleted: !cardState.isCompleted }, cardState.isCompleted ? 'marcou como pendente' : 'marcou como concluido')}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between p-3 border-b border-white/10">
-                    <div className="size-8" />
-                    <span className="text-sm font-semibold text-gray-300">Datas</span>
-                    <button 
-                        onClick={() => setIsDateMenuOpen(false)}
-                        className="size-8 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                    >
-                        <X className="size-4" />
-                    </button>
+              <CheckCircle2 className="mr-1 size-4" />
+              {cardState.isCompleted ? 'Concluido' : 'Concluir'}
+            </Button>
+            {onArchive && (
+              <Button variant="outline" className="border-white/15 bg-transparent" onClick={onArchive}>
+                Arquivar
+              </Button>
+            )}
+            {onDelete && (
+              <Button variant="destructive" className="bg-red-700 hover:bg-red-700/80" onClick={onDelete}>
+                Excluir
+              </Button>
+            )}
+          </div>
+
+          {showLabelsPanel && (
+            <section className="mb-5 rounded-lg border border-white/10 bg-black/30 p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Etiquetas</h3>
+              <div className="grid gap-2">
+                {availableLabels.map((label) => {
+                  const selected = cardState.labels.some((item) => item.id === label.id)
+                  return (
+                    <label key={label.id} className="flex items-center gap-2 rounded border border-white/10 px-2 py-1.5 text-sm">
+                      <input type="checkbox" checked={selected} onChange={() => toggleLabel(label)} className="accent-primary" />
+                      <span className="inline-block h-3 w-8 rounded" style={{ backgroundColor: label.color }} />
+                      <span>{label.text}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
+                <Input value={newLabelName} onChange={(event) => setNewLabelName(event.target.value)} placeholder="Nova etiqueta" />
+                <select value={newLabelColor} onChange={(event) => setNewLabelColor(event.target.value)} className="rounded border border-white/15 bg-black/40 px-2">
+                  {LABEL_COLOR_OPTIONS.map((color) => (
+                    <option key={color} value={color}>
+                      {color}
+                    </option>
+                  ))}
+                </select>
+                <Button onClick={createNewLabel}>Criar</Button>
+              </div>
+            </section>
+          )}
+
+          {showMembersPanel && (
+            <section className="mb-5 rounded-lg border border-white/10 bg-black/30 p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Membros</h3>
+              <div className="grid gap-2">
+                {members.map((member) => {
+                  const selected = cardState.memberIds.includes(member.id)
+                  return (
+                    <label key={member.id} className="flex items-center gap-2 rounded border border-white/10 px-2 py-1.5 text-sm">
+                      <input type="checkbox" checked={selected} onChange={() => toggleMember(member.id)} className="accent-primary" />
+                      <span className="flex size-6 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: member.color }}>
+                        {member.initials}
+                      </span>
+                      <span>{member.name}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{member.email}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {showDatePanel && (
+            <section className="mb-5 rounded-lg border border-white/10 bg-black/30 p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Entrega</h3>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <Input type="date" value={dueDateInput} onChange={(event) => setDueDateInput(event.target.value)} />
+                <Input type="time" value={dueTimeInput} onChange={(event) => setDueTimeInput(event.target.value)} />
+                <div className="flex gap-2">
+                  <Button onClick={handleDueDateSave}>Salvar data</Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setDueDateInput('')
+                      setDueTimeInput('')
+                      updateCard({ dueDate: undefined }, 'removeu a data de entrega')
+                    }}
+                  >
+                    Limpar
+                  </Button>
                 </div>
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-sm">
+                <span className={`rounded px-2 py-1 text-xs font-medium ${dueStatus.className}`}>{dueStatus.text}</span>
+                <span className="text-muted-foreground">{formatDateTime(cardState.dueDate)}</span>
+              </div>
+            </section>
+          )}
 
-                {/* Content */}
-                <div className="p-3">
-                    {/* Calendar Header */}
-                    <div className="flex items-center justify-between mb-4 px-1">
-                        <button 
-                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1)))}
-                            className="size-6 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                        >
-                            <ChevronLeft className="size-4" />
-                        </button>
-                        <span className="text-sm font-medium text-white capitalize">
-                            {currentCalendarDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
-                        </span>
-                        <button 
-                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1)))}
-                            className="size-6 flex items-center justify-center text-gray-400 hover:text-white rounded hover:bg-white/10"
-                        >
-                            <ChevronRight className="size-4" />
-                        </button>
-                    </div>
+          <section className="mb-6">
+            <h3 className="mb-2 text-lg font-semibold">Etiquetas ativas</h3>
+            {cardState.labels.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {cardState.labels.map((label) => (
+                  <span key={label.id} className="rounded px-2 py-1 text-xs font-semibold text-white" style={{ backgroundColor: label.color }}>
+                    {label.text}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhuma etiqueta selecionada.</p>
+            )}
+          </section>
 
-                    {/* Calendar Grid */}
-                    <div className="grid grid-cols-7 gap-1 mb-4 text-center">
-                        {['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'].map(d => (
-                            <div key={d} className="text-[10px] text-gray-500 font-medium uppercase">{d}</div>
-                        ))}
-                        {(() => {
-                            const days = []
-                            const firstDay = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 1).getDay()
-                            const daysInMonth = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 0).getDate()
-                            const prevMonthDays = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 0).getDate()
-                            
-                            // Prev Month Padding
-                            for (let i = 0; i < firstDay; i++) {
-                                days.push(<div key={`prev-${i}`} className="h-8 flex items-center justify-center text-sm text-gray-600">{prevMonthDays - firstDay + i + 1}</div>)
-                            }
-                            
-                            // Current Month
-                            for (let i = 1; i <= daysInMonth; i++) {
-                                const date = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), i)
-                                const isSelected = dueDate && date.toDateString() === dueDate.toDateString()
-                                const isToday = new Date().toDateString() === date.toDateString()
-                                
-                                days.push(
-                                    <div 
-                                        key={i} 
-                                        onClick={() => {
-                                            setDueDate(date)
-                                            setDueDateStr(date.toLocaleDateString('pt-BR'))
-                                            if (onUpdate) onUpdate({ dueDate: date.toISOString() })
-                                        }}
-                                        className={`h-8 flex items-center justify-center text-sm rounded cursor-pointer hover:bg-white/10 
-                                            ${isSelected ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-300'}
-                                            ${isToday && !isSelected ? 'text-blue-400 font-bold' : ''}
-                                        `}
-                                    >
-                                        {i}
-                                    </div>
-                                )
-                            }
-                            
-                            return days
-                        })()}
-                    </div>
-
-                    {/* Inputs */}
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Data de início</label>
-                            <div className="flex gap-2">
-                                <div className="size-4 border border-white/20 rounded mt-2.5"></div>
-                                <Input 
-                                    placeholder="D/M/AAAA" 
-                                    className="bg-[#22272b] border-white/20 text-white placeholder:text-gray-500 h-9"
-                                    disabled
-                                />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Data de entrega</label>
-                            <div className="flex gap-2">
-                                <div className="mt-2.5">
-                                    <CheckSquare className="size-4 text-blue-500" />
-                                </div>
-                                <Input 
-                                    value={dueDateStr}
-                                    onChange={(e) => setDueDateStr(e.target.value)}
-                                    onBlur={handleDueDateBlur}
-                                    placeholder="DD/MM/AAAA"
-                                    className="bg-[#22272b] border-white/20 text-white h-9 flex-1"
-                                />
-                                <Input 
-                                    defaultValue="12:00"
-                                    className="bg-[#22272b] border-white/20 text-white h-9 w-20"
-                                />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <label className="text-xs font-semibold text-gray-400 mb-1 block">Definir lembrete</label>
-                            <select className="w-full bg-[#22272b] border border-white/20 text-white h-9 rounded px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                <option>1 dia antes</option>
-                                <option>2 dias antes</option>
-                                <option>1 hora antes</option>
-                            </select>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 mt-2">
-                            Lembretes serão enviados a todos os membros e seguidores deste cartão.
-                        </p>
-                        
-                        <div className="pt-2 space-y-2">
-                            <Button 
-                                onClick={() => setIsDateMenuOpen(false)}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white h-9"
-                            >
-                                Salvar
-                            </Button>
-                            <Button 
-                                onClick={() => {
-                                    setDueDate(null)
-                                    setDueDateStr("")
-                                    setIsDateMenuOpen(false)
-                                    if (onUpdate) onUpdate({ dueDate: undefined })
-                                }}
-                                variant="secondary" 
-                                className="w-full bg-white/5 hover:bg-white/10 text-white border-none h-9"
-                            >
-                                Remover
-                            </Button>
-                        </div>
-                    </div>
+          <section className="mb-6">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Descricao</h3>
+              {!isEditingDescription && (
+                <Button variant="ghost" size="sm" onClick={() => setIsEditingDescription(true)}>
+                  Editar
+                </Button>
+              )}
+            </div>
+            {isEditingDescription ? (
+              <div className="space-y-2">
+                <textarea defaultValue={cardState.description} className="min-h-40 w-full rounded-md border border-white/15 bg-black/30 p-3 text-sm text-foreground" onBlur={(event) => handleDescriptionSave(event.target.value)} />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={(event) => {
+                      const element = event.currentTarget.parentElement?.previousElementSibling as HTMLTextAreaElement | null
+                      handleDescriptionSave(element?.value ?? cardState.description)
+                    }}
+                  >
+                    Salvar
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setIsEditingDescription(false)}>
+                    Cancelar
+                  </Button>
                 </div>
-            </div>,
-            document.body
-        )}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setIsEditingDescription(true)} className="w-full rounded-md border border-white/15 bg-black/30 p-3 text-left text-sm text-muted-foreground hover:border-primary/40">
+                {cardState.description || 'Adicione o briefing da demanda aqui...'}
+              </button>
+            )}
+          </section>
 
-        {/* Lightbox Overlay */}
-        <ImageLightbox 
-            images={attachments}
-            initialIndex={lightboxIndex ?? 0}
-            isOpen={lightboxIndex !== null}
-            onClose={() => setLightboxIndex(null)}
-            onMakeCover={handleMakeCover}
-            onDelete={handleDeleteAttachment}
-        />
+          <section className="mb-6">
+            <h3 className="mb-3 text-lg font-semibold">Membros</h3>
+            {cardState.memberIds.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {cardState.memberIds.map((memberId) => {
+                  const member = selectedMemberMap.get(memberId)
+                  if (!member) {
+                    return null
+                  }
+
+                  return (
+                    <span key={member.id} className="inline-flex items-center gap-2 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs">
+                      <span className="flex size-5 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: member.color }}>
+                        {member.initials}
+                      </span>
+                      {member.name}
+                    </span>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum membro atribuido.</p>
+            )}
+          </section>
+
+          <section className="mb-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Checklists</h3>
+              <Button variant="outline" size="sm" className="border-white/15 bg-transparent" onClick={() => setShowChecklistPanel((prev) => !prev)}>
+                <Plus className="mr-1 size-4" /> Novo checklist
+              </Button>
+            </div>
+
+            {showChecklistPanel && (
+              <div className="mb-4 flex gap-2">
+                <Input value={newChecklistTitle} onChange={(event) => setNewChecklistTitle(event.target.value)} placeholder="Nome do checklist" />
+                <Button onClick={addChecklist}>Criar</Button>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {cardState.checklists.map((checklist) => {
+                const completed = checklist.items.filter((item) => item.isDone).length
+                const total = checklist.items.length
+                const progress = total === 0 ? 0 : Math.round((completed / total) * 100)
+
+                return (
+                  <article key={checklist.id} className="rounded-lg border border-white/10 bg-black/30 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <Input value={checklist.title} onChange={(event) => updateChecklist(checklist.id, { title: event.target.value })} className="h-8 border-white/15 bg-black/40 text-sm" />
+                      <Button variant="ghost" size="icon" onClick={() => removeChecklist(checklist.id)} aria-label="Remover checklist">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+
+                    <div className="mb-2 text-xs text-muted-foreground">
+                      Progresso: {completed}/{total} ({progress}%)
+                    </div>
+                    <div className="mb-3 h-2 rounded bg-zinc-800">
+                      <div className="h-2 rounded bg-primary" style={{ width: `${progress}%` }} />
+                    </div>
+
+                    <div className="space-y-2">
+                      {checklist.items.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2 rounded border border-white/10 px-2 py-1.5">
+                          <input type="checkbox" checked={item.isDone} onChange={() => toggleChecklistItem(checklist.id, item.id)} className="accent-primary" />
+                          <span className={`flex-1 text-sm ${item.isDone ? 'line-through text-muted-foreground' : ''}`}>{item.content}</span>
+                          <button onClick={() => removeChecklistItem(checklist.id, item.id)} className="text-xs text-muted-foreground hover:text-red-400" type="button">
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 flex gap-2">
+                      <Input
+                        value={checklistDraftItems[checklist.id] ?? ''}
+                        onChange={(event) => setChecklistDraftItems((prev) => ({ ...prev, [checklist.id]: event.target.value }))}
+                        placeholder="Novo item"
+                      />
+                      <Button onClick={() => addChecklistItem(checklist.id)}>Adicionar</Button>
+                    </div>
+                  </article>
+                )
+              })}
+
+              {cardState.checklists.length === 0 && <p className="text-sm text-muted-foreground">Nenhum checklist criado.</p>}
+            </div>
+          </section>
+
+          <section className="mb-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Links</h3>
+              <Button variant="outline" size="sm" className="border-white/15 bg-transparent" onClick={() => setShowLinksPanel((prev) => !prev)}>
+                <Plus className="mr-1 size-4" /> Adicionar link
+              </Button>
+            </div>
+
+            {showLinksPanel && (
+              <div className="mb-4 rounded-lg border border-white/10 bg-black/30 p-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input value={linkDraft.title} onChange={(event) => setLinkDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Titulo" />
+                  <select value={linkDraft.type} onChange={(event) => setLinkDraft((prev) => ({ ...prev, type: event.target.value as LinkDraft['type'] }))} className="rounded border border-white/15 bg-black/40 px-2">
+                    <option value="drive">Google Drive</option>
+                    <option value="figma">Figma</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </div>
+                <Input value={linkDraft.url} onChange={(event) => setLinkDraft((prev) => ({ ...prev, url: event.target.value }))} placeholder="https://..." className="mt-2" />
+                {linkError && <p className="mt-2 text-xs text-red-400">{linkError}</p>}
+                <div className="mt-3 flex gap-2">
+                  <Button onClick={submitLink}>{linkDraft.id ? 'Salvar edicao' : 'Salvar link'}</Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setLinkDraft({ title: '', url: '', type: 'other' })
+                      setLinkError('')
+                      setShowLinksPanel(false)
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {cardState.links.map((link) => (
+                <article key={link.id} className="rounded border border-white/10 bg-black/30 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-sm font-medium text-primary hover:underline">
+                        {link.title}
+                      </a>
+                      <p className="truncate text-xs text-muted-foreground">{link.url}</p>
+                      <p className="mt-1 text-[11px] uppercase text-muted-foreground">{link.type}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => editLink(link)}>
+                        Editar
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => removeLink(link.id)} className="text-red-400 hover:text-red-300">
+                        Remover
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {cardState.links.length === 0 && <p className="text-sm text-muted-foreground">Nenhum link adicionado.</p>}
+            </div>
+          </section>
+        </section>
+
+        <aside className="border-t border-white/10 bg-black/40 md:border-t-0">
+          <header className="border-b border-white/10 px-4 py-3">
+            <h3 className="text-lg font-semibold">Comentarios e atividade</h3>
+          </header>
+
+          <div className="space-y-4 p-4">
+            <div className="rounded-lg border border-white/15 bg-black/40 p-3">
+              <textarea
+                value={commentText}
+                onChange={(event) => setCommentText(event.target.value)}
+                placeholder="Escreva um comentario..."
+                className="h-20 w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+              <div className="mt-2 flex justify-end">
+                <Button onClick={saveComment}>Salvar</Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto pr-1">
+              {cardState.activities.map((activity) => (
+                <article key={activity.id} className="rounded-lg border border-white/10 bg-black/30 p-3">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-white">{activity.actorInitials}</span>
+                    <p className="text-sm font-medium text-foreground">{activity.actorName}</p>
+                  </div>
+                  <p className="text-sm text-foreground/90">{activity.message}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString('pt-BR')}</p>
+                </article>
+              ))}
+
+              {cardState.activities.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma atividade registrada.</p>}
+            </div>
+          </div>
+        </aside>
       </div>
-    </div>,
-    document.body
+    </div>
   )
 }
