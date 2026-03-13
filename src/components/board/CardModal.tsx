@@ -9,7 +9,7 @@ import ImageLightbox from "./ImageLightbox"
 import { getDominantColor } from "@/utils/imageUtils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { type Label, type Attachment, type Activity } from "@/types"
+import { type Label, type Attachment, type Activity, type CardData } from "@/types"
 import { uploadFile } from "@/services/uploadService"
 
 type Props = {
@@ -37,9 +37,9 @@ const LABEL_COLORS = [
     '#60c6d2', '#6cd8fa', '#94c748', '#e774bb', '#8590a2'
 ]
 
-export const INITIAL_LABELS: Label[] = []
+const INITIAL_LABELS: Label[] = []
 
-export const INITIAL_ACTIVITIES: Activity[] = []
+const INITIAL_ACTIVITIES: Activity[] = []
 
 // Sortable Attachment Item Component
 function SortableAttachmentItem({ 
@@ -72,7 +72,7 @@ function SortableAttachmentItem({
                 <GripVertical className="size-4" />
             </div>
             <div 
-                className="h-20 w-28 bg-white/5 rounded overflow-hidden flex-shrink-0 border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
+                className="h-20 w-28 bg-white/5 rounded overflow-hidden shrink-0 border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={onView}
             >
                  <img src={attachment.url} className="w-full h-full object-cover" />
@@ -107,17 +107,21 @@ export default function CardModal({
     hasCover, 
     title,
     initialDescription = "",
-    initialLabels = [],
-    initialActivities = [],
+    initialLabels = INITIAL_LABELS,
+    initialActivities = INITIAL_ACTIVITIES,
     initialAttachments = [],
     initialLightboxOpen = false,
     isCompleted: initialIsCompleted = false,
     dueDate: initialDueDate,
     availableLabels,
     onUpdateAvailableLabels
-}: Props & { onUpdate?: (data: any) => void }) {
+}: Props & { onUpdate?: (data: Partial<CardData>) => void }) {
   const [description, setDescription] = useState(initialDescription)
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(() => {
+    if (!initialLightboxOpen || initialAttachments.length === 0) return null
+    const coverIndex = initialAttachments.findIndex((attachment) => attachment.isCover)
+    return coverIndex >= 0 ? coverIndex : 0
+  })
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(title || "")
@@ -129,15 +133,11 @@ export default function CardModal({
   // Date & Completion State
   const [isCompleted, setIsCompleted] = useState(initialIsCompleted)
   const [dueDate, setDueDate] = useState<Date | null>(initialDueDate ? new Date(initialDueDate) : null)
+  const [dueDateStr, setDueDateStr] = useState(
+    initialDueDate ? new Date(initialDueDate).toLocaleDateString('pt-BR') : "",
+  )
   const [isDateMenuOpen, setIsDateMenuOpen] = useState(false)
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date())
-
-  useEffect(() => {
-      if (initialLightboxOpen && attachments.length > 0) {
-          const coverIndex = attachments.findIndex(a => a.isCover)
-          setLightboxIndex(coverIndex >= 0 ? coverIndex : 0)
-      }
-  }, [initialLightboxOpen])
 
   // DnD Sensors
   const sensors = useSensors(
@@ -160,14 +160,6 @@ export default function CardModal({
       });
     }
   };
-
-  // Date Input Logic
-  const [dueDateStr, setDueDateStr] = useState("")
-  
-  useEffect(() => {
-    if (dueDate) setDueDateStr(dueDate.toLocaleDateString('pt-BR'))
-    else setDueDateStr("")
-  }, [dueDate])
 
   const handleDueDateBlur = () => {
     const parts = dueDateStr.replace(/[^0-9/]/g, '').split('/')
@@ -535,7 +527,7 @@ export default function CardModal({
   const coverUrl = coverAttachment ? coverAttachment.url : (hasCover && attachments.length === 0 ? "https://images.unsplash.com/photo-1600607686527-6fb886090705?q=80&w=1000&auto=format&fit=crop" : null)
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
       <div 
         className="fixed inset-0 z-0" 
         onClick={onClose} 
@@ -713,7 +705,7 @@ export default function CardModal({
                                                 left: popoverPosition.left,
                                                 position: 'fixed'
                                             }}
-                                            className="w-[304px] bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-[10000] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+                                            className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
                                         >
                                             {/* Header - Draggable Area */}
                                             <div 
@@ -762,7 +754,7 @@ export default function CardModal({
 
                                                         <div className="mb-2">
                                                             <h4 className="text-xs font-semibold text-gray-400 mb-2">Etiquetas</h4>
-                                                            <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                                                            <div className="space-y-1 max-h-75 overflow-y-auto custom-scrollbar pr-1">
                                                                 {filteredLabels.map(label => {
                                                                     const isSelected = labels.some(l => l.id === label.id)
                                                                     return (
@@ -824,7 +816,7 @@ export default function CardModal({
                                                         {/* Preview */}
                                                         <div className="flex justify-center bg-[#1c2025] rounded p-8">
                                                             <div 
-                                                                className="h-8 rounded px-4 flex items-center text-sm font-bold text-white shadow-sm min-w-[120px] justify-center"
+                                                                className="h-8 rounded px-4 flex items-center text-sm font-bold text-white shadow-sm min-w-30 justify-center"
                                                                 style={{ backgroundColor: createLabelColor }}
                                                             >
                                                                 {createLabelTitle || "Exemplo"}
@@ -909,7 +901,7 @@ export default function CardModal({
                                                 left: popoverPosition.left,
                                                 position: 'fixed'
                                             }}
-                                            className="w-[304px] bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-[10000] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+                                            className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
                                         >
                                             {/* Header */}
                                             <div className="flex items-center justify-between p-3 border-b border-white/10">
@@ -1071,7 +1063,7 @@ export default function CardModal({
                                         ref={descriptionRef}
                                         value={description}
                                         onChange={(e) => setDescription(e.target.value)}
-                                        className="w-full min-h-[120px] bg-[#222] border border-white/10 rounded-md p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+                                        className="w-full min-h-30 bg-[#222] border border-white/10 rounded-md p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
                                         placeholder="Adicione uma descrição mais detalhada..."
                                     />
                                     <div className="flex gap-2">
@@ -1082,7 +1074,7 @@ export default function CardModal({
                             ) : (
                                 <div 
                                     onClick={() => setIsEditingDescription(true)}
-                                    className="bg-white/5 border border-white/10 rounded-md p-4 text-sm text-foreground/90 min-h-[80px] cursor-pointer hover:bg-white/10 transition-colors"
+                                    className="bg-white/5 border border-white/10 rounded-md p-4 text-sm text-foreground/90 min-h-20 cursor-pointer hover:bg-white/10 transition-colors"
                                 >
                                     {description ? (
                                         <p className="whitespace-pre-wrap">{description}</p>
@@ -1181,7 +1173,7 @@ export default function CardModal({
                     {/* Activities List */}
                     {activities.map((activity) => (
                         <div key={activity.id} className="flex gap-3">
-                             <div className={`size-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-xs ${
+                             <div className={`size-8 rounded-full shrink-0 flex items-center justify-center text-white font-bold text-xs ${
                                  activity.userInitials === 'EV' ? 'bg-primary' : 
                                  activity.userInitials === 'SM' ? 'bg-blue-500' : 'bg-cyan-600'
                              }`}>
@@ -1215,7 +1207,7 @@ export default function CardModal({
                     left: popoverPosition.left,
                     position: 'fixed'
                 }}
-                className="w-[304px] bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-[10000] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+                className="w-76 bg-[#282e33] rounded-lg shadow-2xl border border-white/10 z-10000 flex flex-col animate-in fade-in zoom-in-95 duration-200"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-3 border-b border-white/10">
@@ -1277,6 +1269,7 @@ export default function CardModal({
                                         key={i} 
                                         onClick={() => {
                                             setDueDate(date)
+                                            setDueDateStr(date.toLocaleDateString('pt-BR'))
                                             if (onUpdate) onUpdate({ dueDate: date.toISOString() })
                                         }}
                                         className={`h-8 flex items-center justify-center text-sm rounded cursor-pointer hover:bg-white/10 
@@ -1350,8 +1343,9 @@ export default function CardModal({
                             <Button 
                                 onClick={() => {
                                     setDueDate(null)
+                                    setDueDateStr("")
                                     setIsDateMenuOpen(false)
-                                    if (onUpdate) onUpdate({ dueDate: null })
+                                    if (onUpdate) onUpdate({ dueDate: undefined })
                                 }}
                                 variant="secondary" 
                                 className="w-full bg-white/5 hover:bg-white/10 text-white border-none h-9"

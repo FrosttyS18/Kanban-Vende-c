@@ -118,10 +118,6 @@ export default function Column({
   }
 
   useEffect(() => {
-    setTitleInputValue(column.title)
-  }, [column.title])
-
-  useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
         titleInputRef.current.focus()
         titleInputRef.current.select()
@@ -172,7 +168,7 @@ export default function Column({
 
   if (isDragging) {
       return (
-          <div ref={setNodeRef} style={style} className="w-72 shrink-0 bg-[#161a1d] rounded-lg border border-white/10 h-[500px] opacity-50" />
+          <div ref={setNodeRef} style={style} className="w-72 shrink-0 bg-[#161a1d] rounded-lg border border-white/10 h-125 opacity-50" />
       )
   }
 
@@ -205,7 +201,10 @@ export default function Column({
             />
         ) : (
             <div 
-                onClick={() => setIsEditingTitle(true)}
+                onClick={() => {
+                    setTitleInputValue(column.title)
+                    setIsEditingTitle(true)
+                }}
                 className="text-sm font-semibold text-gray-200 px-2 py-1 rounded hover:bg-white/10 cursor-pointer flex-1 truncate"
             >
                 {column.title}
@@ -272,7 +271,7 @@ export default function Column({
       </div>
 
       {/* Cards Container */}
-      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-2 custom-scrollbar min-h-[50px]">
+      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-2 custom-scrollbar min-h-12.5">
          {addingCardMode === 'top' && (
              <AddCardInput 
                 value={newCardTitle}

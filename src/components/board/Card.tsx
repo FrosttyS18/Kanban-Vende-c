@@ -5,7 +5,7 @@ import CardModal from "./CardModal"
 import { Button } from "@/components/ui/button"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { type Label, type Attachment } from "@/types"
+import { type Label, type Attachment, type CardData } from "@/types"
 
 type Props = {
   id: number | string
@@ -18,7 +18,7 @@ type Props = {
   attachments?: Attachment[]
   onDelete?: (id: number | string) => void
   onArchive?: (id: number | string) => void
-  onUpdate?: (id: number | string, data: any) => void
+  onUpdate?: (id: number | string, data: Partial<CardData>) => void
   availableLabels: Label[]
   onUpdateAvailableLabels: (labels: Label[]) => void
   isOverlay?: boolean
@@ -112,7 +112,7 @@ export default function Card({
         {...listeners}
         onContextMenu={handleContextMenu}
         onClick={() => setIsModalOpen(true)}
-        className="group relative flex flex-col rounded-md bg-card text-sm shadow-sm ring-1 ring-white/5 hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer overflow-hidden bg-[#22272b]"
+        className="group relative flex flex-col rounded-md bg-card text-sm shadow-sm ring-1 ring-white/5 hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer overflow-hidden"
       >
         {/* Edge-to-Edge Cover Image */}
         {cover && (
@@ -154,11 +154,11 @@ export default function Card({
             </div>
           )}
 
-          <div className="font-medium text-card-foreground leading-snug text-gray-200">{title}</div>
+          <div className="font-medium text-card-foreground leading-snug">{title}</div>
           
           {/* Metadata Footer */}
           {(dueDate || isCompleted || (members && members.length > 0) || cover) && (
-            <div className="mt-1 flex items-center justify-between min-h-[20px]">
+            <div className="mt-1 flex items-center justify-between min-h-5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
                {(dueDate || isCompleted) && (
                   <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${

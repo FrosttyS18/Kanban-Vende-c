@@ -1,6 +1,6 @@
 
 export const getDominantColor = (imageUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
         img.src = imageUrl;

@@ -12,8 +12,7 @@ import {
   closestCorners, 
   type DragStartEvent, 
   type DragOverEvent, 
-  type DragEndEvent, 
-  defaultDropAnimationSideEffects 
+  type DragEndEvent
 } from "@dnd-kit/core"
 import { 
   SortableContext, 

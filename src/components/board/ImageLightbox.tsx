@@ -1,5 +1,5 @@
 import { X, ChevronLeft, ChevronRight, Image as ImageIcon, Trash2, MessageSquare, Download } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { type Attachment } from "@/types"
 
@@ -22,6 +22,14 @@ export default function ImageLightbox({
 }: Props) {
     const [currentIndex, setCurrentIndex] = useState(initialIndex)
 
+    const handlePrev = useCallback(() => {
+        setCurrentIndex(prev => (prev > 0 ? prev - 1 : images.length - 1))
+    }, [images.length])
+
+    const handleNext = useCallback(() => {
+        setCurrentIndex(prev => (prev < images.length - 1 ? prev + 1 : 0))
+    }, [images.length])
+
     useEffect(() => {
         setCurrentIndex(initialIndex)
     }, [initialIndex])
@@ -35,15 +43,7 @@ export default function ImageLightbox({
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isOpen, currentIndex])
-
-    const handlePrev = () => {
-        setCurrentIndex(prev => (prev > 0 ? prev - 1 : images.length - 1))
-    }
-
-    const handleNext = () => {
-        setCurrentIndex(prev => (prev < images.length - 1 ? prev + 1 : 0))
-    }
+    }, [handleNext, handlePrev, isOpen, onClose])
 
     const handleDownload = () => {
         if (!currentImage) return
@@ -60,7 +60,7 @@ export default function ImageLightbox({
     const currentImage = images[currentIndex]
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/95 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-10000 flex items-center justify-center bg-black/95 backdrop-blur-sm animate-in fade-in duration-200">
             {/* Close Button */}
             <button onClick={onClose} className="absolute top-4 right-4 text-white/70 hover:text-white p-2 z-50">
                 <X className="size-6" />

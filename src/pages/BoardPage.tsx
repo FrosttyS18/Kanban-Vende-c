@@ -4,13 +4,19 @@ import Sidebar from "@/components/layout/Sidebar"
 import Board from "@/components/board/Board"
 import ArchivedBoard from "@/components/board/ArchivedBoard"
 
-export default function BoardPage() {
+interface BoardPageProps {
+  userEmail?: string
+  onLogout?: () => void
+  isLogoutLoading?: boolean
+}
+
+export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
   const [currentView, setCurrentView] = useState<'board' | 'archived'>('board')
 
   return (
     <div className="grid h-screen grid-cols-1 grid-rows-[auto_1fr] md:grid-cols-[260px_1fr] md:grid-rows-[auto_1fr] bg-background">
       <div className="md:col-span-2">
-        <Header />
+        <Header userEmail={userEmail} onLogout={onLogout} isLogoutLoading={isLogoutLoading} />
       </div>
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
       <main className="overflow-hidden relative">

@@ -43,7 +43,7 @@ export default function ArchivedBoard() {
 
   // Group by Year
   const groupedByYear = archivedCards.reduce((acc, card) => {
-    const date = new Date(card.archivedAt || Date.now())
+    const date = card.archivedAt ? new Date(card.archivedAt) : new Date(0)
     const year = date.getFullYear().toString()
     
     if (!acc[year]) {
