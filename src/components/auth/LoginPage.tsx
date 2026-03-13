@@ -1,4 +1,4 @@
-﻿import { ShieldCheck } from "lucide-react"
+﻿﻿﻿﻿import { ShieldCheck } from "lucide-react"
 import Logo from "@/components/logo/Logo"
 import { Button } from "@/components/ui/button"
 
