@@ -238,7 +238,7 @@ export default function Column({
           document.body
         )}
 
-      <div className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+      <div className="custom-scrollbar flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {addingCardMode === 'top' && <AddCardInput value={newCardTitle} onChange={setNewCardTitle} onAdd={saveCard} onCancel={closeAddCard} />}
 
         <SortableContext items={cardsIds} strategy={verticalListSortingStrategy}>

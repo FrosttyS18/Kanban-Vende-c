@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Archive, Check, Circle, Clock3, Paperclip, Trash2, User } from 'lucide-react'
+import { Archive, Clock3, Paperclip, Trash2, User } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import CardModal from './CardModal'
@@ -91,6 +91,23 @@ function labelTextClass(color: string): string {
   return luminance > 0.55 ? 'text-[#242528]' : 'text-white'
 }
 
+function CompletionIcon({ completed }: { completed: boolean }) {
+  if (completed) {
+    return (
+      <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+        <circle cx="8" cy="8" r="8" fill="#20FF8F" />
+        <path d="M4.5 8.2L7.1 10.7L11.5 5.8" fill="none" stroke="#0E1A13" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+      <circle cx="8" cy="8" r="7.25" fill="none" stroke="#D1D1D1" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
 export default function Card({
   card,
   listTitle,
@@ -166,49 +183,63 @@ export default function Card({
           }
           setIsModalOpen(true)
         }}
-        className="group mx-2 cursor-pointer rounded-[9px] bg-[#242528] px-2 py-2"
+        className="group w-full cursor-pointer rounded-[9px] bg-[#242528] px-2 py-2"
       >
-        {card.labels.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {card.labels.map((label) => (
-              <span key={label.id} className={`rounded-[4px] px-2 py-1 text-[12px] font-semibold ${labelTextClass(label.color)}`} style={{ backgroundColor: label.color }}>
-                {label.text}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="mb-2 flex items-start gap-2">
-          <span className="mt-0.5 text-[#d1d1d1]">
-            {card.isCompleted ? <Check className="size-4" /> : <Circle className="size-4" />}
-          </span>
-          <h4 className="line-clamp-2 text-[15px] font-semibold leading-[1.15] text-white">{card.title}</h4>
-        </div>
-
-        <div className="mt-1 flex items-center justify-between">
-          {dueBadge && card.dueDate ? (
-            <div className={`inline-flex items-center gap-1 rounded-[4px] px-1.5 py-1 ${dueBadge.showBackground ? dueBadge.className : ''}`}>
-              <Clock3 className={`size-[14px] ${dueBadge.iconClassName}`} />
-              <span className={`text-[14px] font-semibold ${dueBadge.textClassName}`}>{formatDueDate(card.dueDate)}</span>
+        <div className="flex flex-col gap-2">
+          {card.labels.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {card.labels.map((label) => (
+                <span key={label.id} className={`rounded-[4px] px-2 py-1 text-[12px] font-semibold leading-none ${labelTextClass(label.color)}`} style={{ backgroundColor: label.color }}>
+                  {label.text}
+                </span>
+              ))}
             </div>
-          ) : (
-            <div />
           )}
 
-          <div className="flex items-center gap-2 text-white">
-            {assignedMembers.length > 0 && (
-              <div className="flex -space-x-1">
-                {assignedMembers.slice(0, 2).map((member) => (
-                  <span key={member.id} className="flex size-4 items-center justify-center rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: member.color }}>
-                    {member.initials}
-                  </span>
-                ))}
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (isOverlay) {
+                  return
+                }
+                onUpdate?.(card.id, { isCompleted: !card.isCompleted })
+              }}
+              className="mt-0.5 shrink-0 text-[#d1d1d1] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label={card.isCompleted ? 'Marcar como pendente' : 'Marcar como concluido'}
+            >
+              <CompletionIcon completed={card.isCompleted} />
+            </button>
+            <h4 className="line-clamp-2 text-[15px] font-semibold leading-[1.2] text-white">{card.title}</h4>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            {dueBadge && card.dueDate ? (
+              <div className={`inline-flex items-center gap-1 rounded-[4px] px-1.5 py-1 ${dueBadge.showBackground ? dueBadge.className : ''}`}>
+                <Clock3 className={`size-[14px] ${dueBadge.iconClassName}`} />
+                <span className={`text-[12px] font-semibold ${dueBadge.textClassName}`}>{formatDueDate(card.dueDate)}</span>
               </div>
+            ) : (
+              <div />
             )}
-            <span className="inline-flex items-center gap-1 text-[12px]">
-              <Paperclip className="size-[14px]" />
-              {card.links.length}
-            </span>
+
+            <div className="flex items-center gap-2 text-white">
+              {assignedMembers.length > 0 && (
+                <div className="flex -space-x-1">
+                  {assignedMembers.slice(0, 2).map((member) => (
+                    <span key={member.id} className="flex size-4 items-center justify-center rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: member.color }}>
+                      {member.initials}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <span className="inline-flex items-center gap-1 text-[12px]">
+                <Paperclip className="size-[14px]" />
+                {card.links.length}
+              </span>
+            </div>
           </div>
         </div>
       </article>
