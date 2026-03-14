@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import { ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
 import Logo from "@/components/logo/Logo"
 import { Button } from "@/components/ui/button"
 
@@ -18,7 +18,7 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
       style={{ backgroundColor: "#0A0A0A" }}
     >
       <section
-        className="w-full max-w-[26rem] rounded-3xl border border-white/5 p-8 shadow-[0_24px_72px_rgba(0,0,0,0.6)]"
+        className="w-full max-w-104 rounded-3xl border border-white/5 p-8 shadow-[0_24px_72px_rgba(0,0,0,0.6)]"
         style={{ backgroundColor: "#141414" }}
       >
         <header className="mb-7 flex flex-col items-center gap-4 text-center">

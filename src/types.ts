@@ -65,6 +65,18 @@ export interface Activity {
   createdAt: string
 }
 
+export interface MemberNotification {
+  id: string
+  memberId: string
+  boardId: string
+  cardId: string
+  type: 'member_assigned'
+  title: string
+  message: string
+  createdAt: string
+  isRead: boolean
+}
+
 export interface CardData {
   id: string
   listId: string
@@ -91,6 +103,8 @@ export interface ColumnData {
 export interface BoardData {
   id: string
   title: string
+  color: string
+  ownerMemberId: string
   createdAt: string
   updatedAt: string
 }
@@ -114,6 +128,7 @@ export interface BoardStore {
   labelsByBoard: Record<string, Label[]>
   shareByBoard: Record<string, BoardShareSettings>
   archivedCards: ArchivedCardData[]
+  notifications: MemberNotification[]
   members: Member[]
   currentBoardId: string
   currentMemberId: string

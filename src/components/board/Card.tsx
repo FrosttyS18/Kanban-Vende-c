@@ -141,6 +141,11 @@ export default function Card({
   }
 
   const dueBadge = useMemo(() => getDueBadge(card.dueDate, card.isCompleted), [card.dueDate, card.isCompleted])
+  const checklistProgress = useMemo(() => {
+    const total = card.checklists.reduce((acc, checklist) => acc + checklist.items.length, 0)
+    const done = card.checklists.reduce((acc, checklist) => acc + checklist.items.filter((item) => item.isDone).length, 0)
+    return { total, done }
+  }, [card.checklists])
 
   const assignedMembers = useMemo(
     () => boardMembers.filter((member) => card.memberIds.includes(member.id)),
@@ -160,12 +165,13 @@ export default function Card({
   }, [])
 
   if (isDragging) {
-    return <div ref={setNodeRef} style={style} className="h-[129px] rounded-[9px] bg-[#242528]/50" />
+    return <div ref={setNodeRef} style={style} className="h-32.25 rounded-[9px] bg-[#242528]/50" />
   }
 
   return (
     <>
       <article
+        id={`card-${card.id}`}
         ref={setNodeRef}
         style={style}
         {...attributes}
@@ -189,7 +195,7 @@ export default function Card({
           {card.labels.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {card.labels.map((label) => (
-                <span key={label.id} className={`rounded-[4px] px-2 py-1 text-[12px] font-semibold leading-none ${labelTextClass(label.color)}`} style={{ backgroundColor: label.color }}>
+                <span key={label.id} className={`rounded-lg px-2 py-1 text-[12px] font-semibold leading-none ${labelTextClass(label.color)}`} style={{ backgroundColor: label.color }}>
                   {label.text}
                 </span>
               ))}
@@ -216,14 +222,24 @@ export default function Card({
           </div>
 
           <div className="flex items-center justify-between pt-1">
-            {dueBadge && card.dueDate ? (
-              <div className={`inline-flex items-center gap-1 rounded-[4px] px-1.5 py-1 ${dueBadge.showBackground ? dueBadge.className : ''}`}>
-                <Clock3 className={`size-[14px] ${dueBadge.iconClassName}`} />
-                <span className={`text-[12px] font-semibold ${dueBadge.textClassName}`}>{formatDueDate(card.dueDate)}</span>
-              </div>
-            ) : (
-              <div />
-            )}
+            <div className="flex items-center gap-2">
+              {dueBadge && card.dueDate && (
+                <div className={`inline-flex items-center gap-1 rounded-lg px-1.5 py-1 ${dueBadge.showBackground ? dueBadge.className : ''}`}>
+                  <Clock3 className={`size-3.5 ${dueBadge.iconClassName}`} />
+                  <span className={`text-[12px] font-semibold ${dueBadge.textClassName}`}>{formatDueDate(card.dueDate)}</span>
+                </div>
+              )}
+
+              {checklistProgress.total > 0 && (
+                <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#d1d1d1]">
+                  <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
+                    <rect x="1.25" y="1.25" width="13.5" height="13.5" rx="2" fill="none" stroke="#d1d1d1" strokeWidth="1.5" />
+                    <path d="M4 8.2L6.5 10.6L11.2 5.8" fill="none" stroke="#d1d1d1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {checklistProgress.done}/{checklistProgress.total}
+                </span>
+              )}
+            </div>
 
             <div className="flex items-center gap-2 text-white">
               {assignedMembers.length > 0 && (
@@ -236,7 +252,7 @@ export default function Card({
                 </div>
               )}
               <span className="inline-flex items-center gap-1 text-[12px]">
-                <Paperclip className="size-[14px]" />
+                <Paperclip className="size-3.5" />
                 {card.links.length}
               </span>
             </div>

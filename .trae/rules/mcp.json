@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "supabase": {
-      "url": "https://mcp.supabase.com/mcp?project_ref=dhefpblsdtpfxegouzva&read_only=false&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage",
-      "headers": {
-        "Authorization": "Bearer ${SUPABASE_ACCESS_TOKEN}"
-      }
+      "url": "https://mcp.supabase.com/mcp?project_ref=dhefpblsdtpfxegouzva&read_only=false&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage"
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp"
     }
   }
 }

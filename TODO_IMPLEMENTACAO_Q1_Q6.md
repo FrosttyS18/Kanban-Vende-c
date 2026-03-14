@@ -1,5 +1,12 @@
 # SocialTeam Kanban - Planejamento de Implementação
 
+## Status de execução real (13/03/2026)
+
+- Q1: parcialmente concluído no frontend (Google OAuth, domínio corporativo e sessão persistente).
+- Q1: rate limit depende de RPCs no Supabase e requer validação final de ambiente.
+- Q2 a Q6: permanecem como backlog principal para implementação incremental.
+- Persistência central de boards/cards/lists no Supabase ainda não está ativa; estado principal ainda está em `localStorage`.
+
 ## Objetivo
 
 Definir o fluxo de UI e o backlog por ordem de execução para autenticação, papéis, múltiplos boards e governança de acesso.

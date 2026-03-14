@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import Card from '@/components/board/Card'
 import { type CardData, type ColumnData, type Label, type Member } from '@/types'
 
+const LIST_TITLE_MAX_LENGTH = 150
+
 type Props = {
   column: ColumnData
   cards: CardData[]
@@ -151,19 +153,20 @@ export default function Column({
   }
 
   if (isDragging) {
-    return <div ref={setNodeRef} style={style} className="h-[661px] w-[273px] shrink-0 rounded-[12px] border border-white/10 bg-[#101204] opacity-50" />
+    return <div ref={setNodeRef} style={style} className="h-165.25 w-68.25 shrink-0 rounded-2xl border border-white/10 bg-[#101204] opacity-50" />
   }
 
   return (
-    <section ref={setNodeRef} style={style} className="flex max-h-[calc(100vh-140px)] w-[273px] shrink-0 flex-col rounded-[12px] bg-[#101204]">
+    <section ref={setNodeRef} style={style} className="flex max-h-[calc(100vh-140px)] w-68.25 shrink-0 flex-col rounded-2xl bg-[#101204]">
       <header {...attributes} {...listeners} className="group flex cursor-grab items-center justify-between px-4 pb-3 pt-3 active:cursor-grabbing">
         {isEditingTitle ? (
           <Input
             ref={titleInputRef}
             value={titleInputValue}
-            onChange={(event) => setTitleInputValue(event.target.value)}
+            onChange={(event) => setTitleInputValue(event.target.value.slice(0, LIST_TITLE_MAX_LENGTH))}
+            maxLength={LIST_TITLE_MAX_LENGTH}
             onBlur={() => {
-              const nextTitle = titleInputValue.trim()
+              const nextTitle = titleInputValue.trim().slice(0, LIST_TITLE_MAX_LENGTH)
               if (nextTitle && nextTitle !== column.title) {
                 onRename(column.id, nextTitle)
               }
@@ -171,7 +174,7 @@ export default function Column({
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
-                const nextTitle = titleInputValue.trim()
+                const nextTitle = titleInputValue.trim().slice(0, LIST_TITLE_MAX_LENGTH)
                 if (nextTitle) {
                   onRename(column.id, nextTitle)
                 }
@@ -270,7 +273,7 @@ export default function Column({
 
       {!addingCardMode && !isOverlay && (
         <footer className="px-4 pb-4 pt-2">
-          <Button onClick={() => setAddingCardMode('bottom')} variant="ghost" className="h-[22px] w-full justify-start p-0 text-[14px] font-medium text-[#d1d1d1] hover:bg-transparent hover:text-white">
+          <Button onClick={() => setAddingCardMode('bottom')} variant="ghost" className="h-5.5 w-full justify-start p-0 text-[14px] font-medium text-[#d1d1d1] hover:bg-transparent hover:text-white">
             <Plus className="mr-2 size-4" />
             Adicionar um cartao
           </Button>

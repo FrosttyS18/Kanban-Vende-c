@@ -15,4 +15,29 @@ export default defineConfig({
       overlay: false,
     },
   },
+  build: {
+    chunkSizeWarningLimit: 450,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('scheduler')) {
+              return 'vendor-react'
+            }
+            if (id.includes('@dnd-kit')) {
+              return 'vendor-dnd'
+            }
+            if (id.includes('@supabase')) {
+              return 'vendor-supabase'
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
+            return 'vendor'
+          }
+          return undefined
+        },
+      },
+    },
+  },
 })

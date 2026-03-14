@@ -1,6 +1,19 @@
 Projeto: SocialTeam Kanban (Custom Board)
 Tipo: Aplicação Web (SaaS Interno) Objetivo: Gerenciamento de tarefas para time de Social Media e Design. Data: 07/01/2026
 
+## Estado real atual (13/03/2026)
+
+Este bloco representa o estado real do código no repositório e deve prevalecer sobre descrições históricas abaixo.
+
+- Frontend ativo: React + TypeScript + Vite + Tailwind + shadcn/ui + dnd-kit.
+- Autenticação ativa: Supabase Auth com Google OAuth + restrição de domínio corporativo.
+- Persistência atual do board: localStorage (`kanban_vndc_store_v1`), ainda sem persistência relacional do board no Supabase.
+- Realtime de boards/cards: ainda não implementado.
+- Links em cards: fluxo ativo para Drive/Figma/outros no modal do card.
+- Upload Firebase: código legado existente no repositório, sem integração ativa no fluxo principal atual.
+- Sessão: persistida no cliente via Supabase.
+- Controle de encoding: padrão UTF-8 com `.editorconfig` e normalização de texto com `.gitattributes`.
+
 1. Stack Tecnológica (A Arquitetura)
 Para garantir escalabilidade, tempo real e acesso via navegador (Mobile/Desktop) sem instalação.
 

@@ -1,4 +1,5 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { MessageSquareText } from 'lucide-react'
 import { type Activity, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member } from '@/types'
 import { createId } from '@/services/boardService'
 import ChecklistCreateMenu from '@/components/board/card-modal/ChecklistCreateMenu'
@@ -30,9 +31,24 @@ type LinkDraft = {
   type: 'drive' | 'figma' | 'other'
 }
 
-const LABEL_COLOR_OPTIONS = ['#facc15', '#b700ff', '#006fff', '#00e5ff', '#ff0068', '#16a34a', '#ea580c']
+type AttachmentMenuState = {
+  id: string
+  top: number
+  left: number
+}
+
+type FloatingPanelState = {
+  top: number
+  left: number
+}
+
+const DEFAULT_LABEL_COLOR = '#ff0068'
 const DRIVE_LOGO_URL = 'http://localhost:3845/assets/6a473b13ee231afeb36bf8951149d483553910a0.png'
 const CHECKLIST_ICON_URL = 'http://localhost:3845/assets/0c04a6a95bb30c5af177f0d2a6601b30dd08486c.svg'
+const COMMENT_MAX_LENGTH = 1000
+const ACTIVITY_COOLDOWN_MS = 15000
+const MEMBER_ACTIVITY_COOLDOWN_MS = 45000
+const MAX_ACTIVITY_ITEMS = 120
 
 function formatDueDateWithTime(value?: string): string {
   if (!value) {
@@ -101,6 +117,13 @@ function formatAttachmentMeta(createdAt: string): string {
   return `Adicionado h\u00e1 ${relativeTimeFromNow(createdAt)}; ${absolute}`
 }
 
+function normalizeLegacyText(value: string): string {
+  return value
+    .replaceAll('conclu�do', 'concluído')
+    .replaceAll('Conclu�do', 'Concluído')
+    .replaceAll('concluído', 'concluído')
+}
+
 function validateUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -108,6 +131,12 @@ function validateUrl(url: string): boolean {
   } catch {
     return false
   }
+}
+
+function normalizeHexColor(input: string, fallback: string): string {
+  const value = input.trim()
+  const withHash = value.startsWith('#') ? value : `#${value}`
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : fallback
 }
 
 function getLabelTextClass(color: string): string {
@@ -142,7 +171,7 @@ function LinkTypeIcon({ type }: { type: LinkDraft['type'] }) {
   if (type === 'figma') {
     return (
       <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
-        <svg viewBox="0 0 16 24" className="h-[22px] w-[15px]">
+        <svg viewBox="0 0 16 24" className="h-5.5 w-3.75">
           <path d="M5.3 24a5.3 5.3 0 1 1 0-10.6h2.6V18.7A5.3 5.3 0 0 1 5.3 24Z" fill="#0ACF83" />
           <path d="M0 18.7a5.3 5.3 0 0 1 5.3-5.3h2.6V24H5.3A5.3 5.3 0 0 1 0 18.7Z" fill="#A259FF" />
           <path d="M0 8a5.3 5.3 0 0 1 5.3-5.3h2.6v10.7H5.3A5.3 5.3 0 0 1 0 8Z" fill="#F24E1E" />
@@ -155,7 +184,7 @@ function LinkTypeIcon({ type }: { type: LinkDraft['type'] }) {
 
   return (
     <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
-      <svg viewBox="0 0 15.1674 15.1674" className="size-[14px]">
+      <svg viewBox="0 0 15.1674 15.1674" className="size-3.5">
         <path
           d="M13.4993 6.40195L13.6058 6.29617C14.2323 5.6678 14.5841 4.81668 14.5841 3.92937C14.5841 3.04206 14.2323 2.19094 13.6058 1.56256C12.9777 0.935521 12.1265 0.58334 11.239 0.58334C10.3515 0.58334 9.50028 0.935521 8.8722 1.56256L1.56256 8.8722C0.935521 9.50028 0.58334 10.3515 0.58334 11.239C0.58334 12.1265 0.935521 12.9777 1.56256 13.6058C2.19094 14.2323 3.04206 14.5841 3.92937 14.5841C4.81668 14.5841 5.6678 14.2323 6.29617 13.6058L11.2359 8.6622C11.4905 8.40651 11.6636 8.0812 11.7336 7.72725C11.8036 7.3733 11.7673 7.00656 11.6293 6.67322C11.4912 6.33987 11.2576 6.05485 10.9578 5.85405C10.6581 5.65325 10.3056 5.54566 9.94477 5.54483C9.4605 5.54512 8.99614 5.73758 8.65364 6.07995L3.47592 11.2569"
           stroke="#d1d1d1"
@@ -188,7 +217,7 @@ function CompletionIcon({ completed }: { completed: boolean }) {
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 13.15 13.15" className="size-[13px]" aria-hidden="true">
+    <svg viewBox="0 0 13.15 13.15" className="size-3.25" aria-hidden="true">
       <path
         d="M6.575 7.975L1.675 12.875C1.49167 13.0583 1.25833 13.15 0.975 13.15C0.691667 13.15 0.458333 13.0583 0.275 12.875C0.0916663 12.6917 0 12.4583 0 12.175C0 11.8917 0.0916663 11.6583 0.275 11.475L5.175 6.575L0.275 1.675C0.0916663 1.49167 0 1.25833 0 0.975C0 0.691667 0.0916663 0.458333 0.275 0.275C0.458333 0.0916663 0.691667 0 0.975 0C1.25833 0 1.49167 0.0916663 1.675 0.275L6.575 5.175L11.475 0.275C11.6583 0.0916663 11.8917 0 12.175 0C12.4583 0 12.6917 0.0916663 12.875 0.275C13.0583 0.458333 13.15 0.691667 13.15 0.975C13.15 1.25833 13.0583 1.49167 12.875 1.675L7.975 6.575L12.875 11.475C13.0583 11.6583 13.15 11.8917 13.15 12.175C13.15 12.4583 13.0583 12.6917 12.875 12.875C12.6917 13.0583 12.4583 13.15 12.175 13.15C11.8917 13.15 11.6583 13.0583 11.475 12.875L6.575 7.975Z"
         fill="#d1d1d1"
@@ -199,7 +228,7 @@ function CloseIcon() {
 
 function PlusIcon() {
   return (
-    <svg viewBox="0 0 13.1009 12.1651" className="size-[13px]" aria-hidden="true">
+    <svg viewBox="0 0 13.1009 12.1651" className="size-3.25" aria-hidden="true">
       <path
         d="M12.1651 6.95151H7.48624V11.2962C7.48624 11.5267 7.38765 11.7477 7.21216 11.9106C7.03666 12.0736 6.79864 12.1651 6.55046 12.1651C6.30227 12.1651 6.06426 12.0736 5.88876 11.9106C5.71327 11.7477 5.61468 11.5267 5.61468 11.2962V6.95151H0.93578C0.687596 6.95151 0.449577 6.85996 0.274084 6.697C0.098591 6.53404 0 6.31303 0 6.08257C0 5.85211 0.098591 5.63109 0.274084 5.46814C0.449577 5.30518 0.687596 5.21363 0.93578 5.21363H5.61468V0.868938C5.61468 0.638482 5.71327 0.417463 5.88876 0.254506C6.06426 0.0915484 6.30227 0 6.55046 0C6.79864 0 7.03666 0.0915484 7.21216 0.254506C7.38765 0.417463 7.48624 0.638482 7.48624 0.868938V5.21363H12.1651C12.4133 5.21363 12.6513 5.30518 12.8268 5.46814C13.0023 5.63109 13.1009 5.85211 13.1009 6.08257C13.1009 6.31303 13.0023 6.53404 12.8268 6.697C12.6513 6.85996 12.4133 6.95151 12.1651 6.95151Z"
         fill="#d1d1d1"
@@ -210,13 +239,13 @@ function PlusIcon() {
 
 function ChecklistIcon() {
   return (
-    <img src={CHECKLIST_ICON_URL} alt="" className="size-[14px]" />
+    <img src={CHECKLIST_ICON_URL} alt="" className="size-3.5" />
   )
 }
 
 function MembersIcon() {
   return (
-    <svg viewBox="0 0 14 14" className="size-[14px]" aria-hidden="true">
+    <svg viewBox="0 0 14 14" className="size-3.5" aria-hidden="true">
       <path d="M7 0C7.92826 0 8.8185 0.368749 9.47487 1.02513C10.1313 1.6815 10.5 2.57174 10.5 3.5C10.5 4.42826 10.1313 5.3185 9.47487 5.97487C8.8185 6.63125 7.92826 7 7 7C6.07174 7 5.1815 6.63125 4.52513 5.97487C3.86875 5.3185 3.5 4.42826 3.5 3.5C3.5 2.57174 3.86875 1.6815 4.52513 1.02513C5.1815 0.368749 6.07174 0 7 0ZM7 8.75C10.8675 8.75 14 10.3162 14 12.25V14H0V12.25C0 10.3162 3.1325 8.75 7 8.75Z" fill="#d1d1d1" />
     </svg>
   )
@@ -224,7 +253,7 @@ function MembersIcon() {
 
 function AttachmentIcon() {
   return (
-    <svg viewBox="0 0 15.1674 15.1674" className="size-[14px]" aria-hidden="true">
+    <svg viewBox="0 0 15.1674 15.1674" className="size-3.5" aria-hidden="true">
       <path d="M13.4993 6.40195L13.6058 6.29617C14.2323 5.6678 14.5841 4.81668 14.5841 3.92937C14.5841 3.04206 14.2323 2.19094 13.6058 1.56256C12.9777 0.935521 12.1265 0.58334 11.239 0.58334C10.3515 0.58334 9.50028 0.935521 8.8722 1.56256L1.56256 8.8722C0.935521 9.50028 0.58334 10.3515 0.58334 11.239C0.58334 12.1265 0.935521 12.9777 1.56256 13.6058C2.19094 14.2323 3.04206 14.5841 3.92937 14.5841C4.81668 14.5841 5.6678 14.2323 6.29617 13.6058L11.2359 8.6622C11.4905 8.40651 11.6636 8.0812 11.7336 7.72725C11.8036 7.3733 11.7673 7.00656 11.6293 6.67322C11.4912 6.33987 11.2576 6.05485 10.9578 5.85405C10.6581 5.65325 10.3056 5.54566 9.94477 5.54483C9.4605 5.54512 8.99614 5.73758 8.65364 6.07995L3.47592 11.2569" stroke="#d1d1d1" strokeWidth="1.16668" strokeMiterlimit="10" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
@@ -232,7 +261,7 @@ function AttachmentIcon() {
 
 function ChevronIcon() {
   return (
-    <svg viewBox="0 0 6.00008 10.9086" className="h-[10px] w-[6px] -rotate-90" aria-hidden="true">
+    <svg viewBox="0 0 6.00008 10.9086" className="h-2.5 w-1.5 -rotate-90" aria-hidden="true">
       <path d="M6.00008 10.017L5.10772 10.9086L0.24723 6.04975C0.168881 5.97189 0.106703 5.87931 0.0642732 5.77733C0.0218434 5.67535 0 5.56599 0 5.45554C0 5.34508 0.0218434 5.23572 0.0642732 5.13374C0.106703 5.03177 0.168881 4.93918 0.24723 4.86133L5.10772 0L5.99924 0.891524L1.43733 5.45428L6.00008 10.017Z" fill="#d1d1d1" />
     </svg>
   )
@@ -254,19 +283,22 @@ function ToolButton({
   icon,
   width,
   onClick,
-  active
+  active,
+  isLinkTrigger
 }: {
   label: string
   icon: ReactNode
   width: string
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
   active?: boolean
+  isLinkTrigger?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-[33px] items-center justify-center gap-1 rounded-[6px] border px-2 text-[13.101px] font-semibold transition-colors ${width} ${
+      data-link-form-trigger={isLinkTrigger ? 'true' : undefined}
+      className={`flex h-8.25 items-center justify-center gap-1 rounded-[6px] border px-2 text-[13.101px] font-semibold transition-colors ${width} ${
         active ? 'border-[#ff0068] bg-[#303134] text-white' : 'border-[#d1d1d1] bg-transparent text-[#d1d1d1]'
       }`}
     >
@@ -299,11 +331,15 @@ export default function CardModal({
   const [showLabelsPopover, setShowLabelsPopover] = useState(false)
   const [openedLinkMenuId, setOpenedLinkMenuId] = useState<string | null>(null)
   const [commentText, setCommentText] = useState('')
+  const [isTitleEditing, setIsTitleEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(card.title)
   const [descriptionDraft, setDescriptionDraft] = useState(card.description)
   const [isDescriptionEditing, setIsDescriptionEditing] = useState(false)
   const [labelSearchValue, setLabelSearchValue] = useState('')
   const [newLabelName, setNewLabelName] = useState('')
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLOR_OPTIONS[0])
+  const [newLabelColor, setNewLabelColor] = useState(DEFAULT_LABEL_COLOR)
+  const [attachmentMenu, setAttachmentMenu] = useState<AttachmentMenuState | null>(null)
+  const [linkFormPanel, setLinkFormPanel] = useState<FloatingPanelState | null>(null)
   const [dueDateInput, setDueDateInput] = useState(() => {
     if (!card.dueDate) {
       return ''
@@ -330,6 +366,7 @@ export default function CardModal({
   const [checklistAnchorEl, setChecklistAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [labelsAnchorEl, setLabelsAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [dateAnchorEl, setDateAnchorEl] = useState<HTMLButtonElement | null>(null)
+  const descriptionSectionRef = useRef<HTMLDivElement>(null)
 
   const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
 
@@ -360,6 +397,70 @@ export default function CardModal({
     }
   }, [isOpen])
 
+  useEffect(() => {
+    if (!attachmentMenu) {
+      return
+    }
+
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest('[data-attachment-menu="true"]')) {
+        return
+      }
+      if (target.closest('[data-attachment-menu-trigger="true"]')) {
+        return
+      }
+      setAttachmentMenu(null)
+    }
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAttachmentMenu(null)
+      }
+    }
+
+    window.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onEscape)
+
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onEscape)
+    }
+  }, [attachmentMenu])
+
+  useEffect(() => {
+    if (!showLinkForm) {
+      return
+    }
+
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest('[data-link-form="true"]')) {
+        return
+      }
+      if (target.closest('[data-link-form-trigger="true"]')) {
+        return
+      }
+      setShowLinkForm(false)
+      setLinkFormPanel(null)
+    }
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowLinkForm(false)
+        setLinkFormPanel(null)
+      }
+    }
+
+    window.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onEscape)
+
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onEscape)
+    }
+  }, [showLinkForm])
+
   if (!isOpen) {
     return null
   }
@@ -379,9 +480,33 @@ export default function CardModal({
       createdAt: new Date().toISOString()
     }
 
-    const next = [activity, ...cardState.activities]
-    setCardState((prev) => ({ ...prev, activities: next }))
-    onUpdate({ activities: next })
+    const nowMs = new Date(activity.createdAt).getTime()
+    const recentCompletionIndex =
+      message.startsWith('marcou como')
+        ? cardState.activities.findIndex((item) => {
+            const itemTimeMs = new Date(item.createdAt).getTime()
+            return item.type === 'system' && item.actorId === activity.actorId && item.message.startsWith('marcou como') && nowMs - itemTimeMs <= ACTIVITY_COOLDOWN_MS
+          })
+        : -1
+    const recentMemberChangeIndex =
+      message.startsWith('adicionou membro') || message.startsWith('removeu membro')
+        ? cardState.activities.findIndex((item) => {
+            const itemTimeMs = new Date(item.createdAt).getTime()
+            return (
+              item.type === 'system' &&
+              item.actorId === activity.actorId &&
+              item.message === message &&
+              nowMs - itemTimeMs <= MEMBER_ACTIVITY_COOLDOWN_MS
+            )
+          })
+        : -1
+    const replaceIndex = recentCompletionIndex !== -1 ? recentCompletionIndex : recentMemberChangeIndex
+
+    const next =
+      replaceIndex !== -1 ? [activity, ...cardState.activities.filter((_, index) => index !== replaceIndex)] : [activity, ...cardState.activities]
+    const capped = next.slice(0, MAX_ACTIVITY_ITEMS)
+    setCardState((prev) => ({ ...prev, activities: capped }))
+    onUpdate({ activities: capped })
   }
 
   const updateCard = (updates: Partial<CardData>, activityMessage?: string) => {
@@ -397,6 +522,33 @@ export default function CardModal({
   const startDescriptionEditing = () => {
     setDescriptionDraft(cardState.description)
     setIsDescriptionEditing(true)
+    requestAnimationFrame(() => {
+      descriptionSectionRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+  }
+
+  const startTitleEditing = () => {
+    setTitleDraft(cardState.title)
+    setIsTitleEditing(true)
+  }
+
+  const saveTitle = () => {
+    const nextTitle = titleDraft.trim()
+    if (!nextTitle) {
+      setTitleDraft(cardState.title)
+      setIsTitleEditing(false)
+      return
+    }
+
+    if (nextTitle !== cardState.title) {
+      updateCard({ title: nextTitle }, `renomeou o cartão para ${nextTitle}`)
+    }
+    setIsTitleEditing(false)
+  }
+
+  const cancelTitle = () => {
+    setTitleDraft(cardState.title)
+    setIsTitleEditing(false)
   }
 
   const saveDescription = () => {
@@ -440,26 +592,64 @@ export default function CardModal({
     if (!name) {
       return
     }
+    const color = normalizeHexColor(newLabelColor, DEFAULT_LABEL_COLOR)
 
     const label: Label = {
       id: createId('label'),
       text: name,
-      color: newLabelColor
+      color
     }
 
     onUpdateAvailableLabels([...availableLabels, label])
     updateCard({ labels: [...cardState.labels, label] }, `criou a etiqueta ${name}`)
     setNewLabelName('')
-    setNewLabelColor(LABEL_COLOR_OPTIONS[0])
+    setNewLabelColor(DEFAULT_LABEL_COLOR)
     setLabelSearchValue('')
     setShowLabelsPopover(false)
+  }
+
+  const updateLabel = (labelId: string, updates: Partial<Label>) => {
+    const nextAvailable = availableLabels.map((label) => (label.id === labelId ? { ...label, ...updates } : label))
+    onUpdateAvailableLabels(nextAvailable)
+
+    const nextCardLabels = cardState.labels.map((label) => (label.id === labelId ? { ...label, ...updates } : label))
+    updateCard({ labels: nextCardLabels })
+  }
+
+  const deleteLabel = (labelId: string) => {
+    const targetLabel = availableLabels.find((label) => label.id === labelId)
+    const nextAvailable = availableLabels.filter((label) => label.id !== labelId)
+    onUpdateAvailableLabels(nextAvailable)
+
+    const nextCardLabels = cardState.labels.filter((label) => label.id !== labelId)
+    updateCard({ labels: nextCardLabels }, targetLabel ? `removeu a etiqueta ${targetLabel.text}` : 'removeu etiqueta')
   }
 
   const toggleMember = (memberId: string) => {
     const exists = cardState.memberIds.includes(memberId)
     const next = exists ? cardState.memberIds.filter((id) => id !== memberId) : [...cardState.memberIds, memberId]
-    const memberName = members.find((member) => member.id === memberId)?.name ?? 'Membro'
-    updateCard({ memberIds: next }, exists ? `removeu ${memberName}` : `adicionou ${memberName}`)
+    const targetMember = members.find((member) => member.id === memberId)
+    const memberName = targetMember?.name ?? 'Membro'
+
+    if (!exists && targetMember) {
+      let labelToAttach = availableLabels.find((label) => label.text === targetMember.name)
+      if (!labelToAttach) {
+        labelToAttach = {
+          id: createId('label'),
+          text: targetMember.name,
+          color: targetMember.color
+        }
+        onUpdateAvailableLabels([...availableLabels, labelToAttach])
+      }
+
+      const hasLabelOnCard = cardState.labels.some((label) => label.id === labelToAttach.id)
+      if (!hasLabelOnCard) {
+        updateCard({ memberIds: next, labels: [...cardState.labels, labelToAttach] }, `adicionou membro ${memberName}`)
+        return
+      }
+    }
+
+    updateCard({ memberIds: next }, exists ? `removeu membro ${memberName}` : `adicionou membro ${memberName}`)
   }
 
   const syncDueInputs = (dueDate?: string) => {
@@ -584,6 +774,11 @@ export default function CardModal({
     updateChecklist(checklistId, { items: nextItems })
   }
 
+  const renameChecklist = (checklistId: string, title: string) => {
+    const next = cardState.checklists.map((item) => (item.id === checklistId ? { ...item, title } : item))
+    updateCard({ checklists: next }, `renomeou checklist para ${title}`)
+  }
+
   const removeChecklistItem = (checklistId: string, itemId: string) => {
     const checklist = cardState.checklists.find((item) => item.id === checklistId)
     if (!checklist) {
@@ -623,12 +818,27 @@ export default function CardModal({
     setLinkDraft({ title: '', url: '', type: 'other' })
     setLinkError('')
     setShowLinkForm(false)
+    setLinkFormPanel(null)
   }
 
   const editLink = (link: LinkAttachment) => {
+    const panelWidth = 560
+    const viewportPadding = 12
+    const fallbackLeft = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, window.innerWidth / 2 - panelWidth / 2))
+    const fallbackTop = Math.max(80, window.innerHeight / 2 - 140)
+
     setLinkDraft({ id: link.id, title: link.title, url: link.url, type: link.type || detectLinkType(link.url) })
     setShowLinkForm(true)
+    if (attachmentMenu) {
+      setLinkFormPanel({
+        top: attachmentMenu.top + 8,
+        left: Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, attachmentMenu.left - panelWidth - 8))
+      })
+    } else {
+      setLinkFormPanel({ top: fallbackTop, left: fallbackLeft })
+    }
     setOpenedLinkMenuId(null)
+    setAttachmentMenu(null)
   }
 
   const removeLink = (id: string) => {
@@ -636,6 +846,7 @@ export default function CardModal({
     const next = cardState.links.filter((link) => link.id !== id)
     updateCard({ links: next }, target ? `removeu link ${target.title}` : 'removeu link')
     setOpenedLinkMenuId(null)
+    setAttachmentMenu(null)
   }
 
   const saveComment = () => {
@@ -670,20 +881,22 @@ export default function CardModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cart\u00e3o'}>
-      <div className="h-[657px] w-[1082px] max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#585353] bg-[#242528]">
-        <header className="flex h-[59px] items-center justify-between border-b border-[#585353] bg-[#242528] px-[26px]">
+      <div className="h-164.25 w-270.5 max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#585353] bg-[#242528]">
+        <header className="flex h-14.75 items-center justify-between border-b border-[#585353] bg-[#242528] px-6.5">
           <div className="relative">
             <button
               type="button"
               onClick={() => setIsListMenuOpen((prev) => !prev)}
-              className="flex h-[29px] w-[102px] items-center justify-between rounded-[6px] bg-[#4b4d51] px-3 text-[13px] font-semibold text-[#d1d1d1]"
+              className="flex min-h-7.25 max-w-130 items-center justify-between gap-2 rounded-[6px] bg-[#4b4d51] px-3 py-1 text-[13px] font-semibold text-[#d1d1d1]"
             >
-              <span className="truncate uppercase">{currentList}</span>
-              <ChevronIcon />
+              <span className="whitespace-normal break-all text-left">{currentList}</span>
+              <span className="shrink-0">
+                <ChevronIcon />
+              </span>
             </button>
 
             {isListMenuOpen && (
-              <div className="absolute left-0 top-[34px] z-20 min-w-[170px] rounded-[8px] border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl">
+              <div className="custom-scrollbar absolute left-0 top-8.5 z-20 max-h-76 min-w-42.5 overflow-y-auto rounded-xl border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl">
                 {listOptions.map((option) => (
                   <button
                     key={option.id}
@@ -700,13 +913,13 @@ export default function CardModal({
             )}
           </div>
 
-          <button type="button" onClick={onClose} className="flex h-[28px] w-[28px] items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10" aria-label="Fechar">
+          <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10" aria-label="Fechar">
             <CloseIcon />
           </button>
         </header>
 
         <div className="grid h-[calc(100%-59px)] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_460px]">
-          <section className="custom-scrollbar overflow-y-auto px-6 py-6 lg:px-[57px] lg:py-[23px]">
+          <section className="custom-scrollbar overflow-y-auto px-6.5 py-6 lg:px-6.5 lg:py-5.75">
             <div className="flex items-start gap-2">
               <button
                 type="button"
@@ -716,7 +929,30 @@ export default function CardModal({
               >
                 <CompletionIcon completed={cardState.isCompleted} />
               </button>
-              <h2 className="text-[24px] font-semibold leading-tight text-white">{cardState.title}</h2>
+              {isTitleEditing ? (
+                <input
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      saveTitle()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      cancelTitle()
+                    }
+                  }}
+                  className="h-10 w-full max-w-180 rounded-[6px] border border-[#ff0068] bg-[#242528] px-3 text-[24px] font-semibold leading-tight text-white outline-none"
+                  autoFocus
+                  aria-label="Editar título do cartão"
+                />
+              ) : (
+                <button type="button" onClick={startTitleEditing} className="text-left">
+                  <h2 className="text-[24px] font-semibold leading-tight text-white">{cardState.title}</h2>
+                </button>
+              )}
             </div>
 
             <div className="mt-8 flex flex-wrap items-center gap-2">
@@ -732,7 +968,27 @@ export default function CardModal({
                 active={showChecklistCreateMenu}
               />
               <ToolButton label="Membros" icon={<MembersIcon />} width="w-[99px]" onClick={() => setShowMembersMenu((prev) => !prev)} active={showMembersMenu} />
-              <ToolButton label="Anexos" icon={<AttachmentIcon />} width="w-[79px]" onClick={() => setShowLinkForm((prev) => !prev)} active={showLinkForm} />
+              <ToolButton
+                label="Anexos"
+                icon={<AttachmentIcon />}
+                width="w-[79px]"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const panelWidth = 560
+                  const viewportPadding = 12
+                  const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
+                  const top = rect.bottom + 8
+                  setLinkDraft({ title: '', url: '', type: 'other' })
+                  setLinkError('')
+                  setShowLinkForm((prev) => {
+                    const next = !prev
+                    setLinkFormPanel(next ? { top, left } : null)
+                    return next
+                  })
+                }}
+                active={showLinkForm}
+                isLinkTrigger
+              />
             </div>
 
             <ChecklistCreateMenu
@@ -756,17 +1012,18 @@ export default function CardModal({
               searchValue={labelSearchValue}
               newLabelName={newLabelName}
               newLabelColor={newLabelColor}
-              colorOptions={LABEL_COLOR_OPTIONS}
               onSearchChange={setLabelSearchValue}
               onNewLabelNameChange={setNewLabelName}
               onNewLabelColorChange={setNewLabelColor}
               onToggleLabel={toggleLabel}
+              onUpdateLabel={updateLabel}
+              onDeleteLabel={deleteLabel}
               onCreateLabel={createLabel}
               onClose={() => setShowLabelsPopover(false)}
             />
 
             {showAddMenu && (
-              <div className="mt-3 grid gap-2 rounded-[8px] border border-[#3f3f3f] bg-[#303134] p-3 lg:grid-cols-3">
+              <div className="mt-3 grid gap-2 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 lg:grid-cols-3">
                 <button
                   type="button"
                   onClick={(event) => openLabelsPopover(event.currentTarget)}
@@ -799,7 +1056,7 @@ export default function CardModal({
                     <button
                       key={label.id}
                       type="button"
-                      onClick={() => toggleLabel(label)}
+                      onClick={(event) => openLabelsPopover(event.currentTarget)}
                       className={`rounded-[5px] px-3 py-1.5 text-[13px] font-semibold ${getLabelTextClass(label.color)}`}
                       style={{ backgroundColor: label.color }}
                     >
@@ -809,7 +1066,7 @@ export default function CardModal({
                   <button
                     type="button"
                     onClick={(event) => openLabelsPopover(event.currentTarget)}
-                    className="flex h-[26px] w-[26px] items-center justify-center rounded-[5px] bg-[#303134] text-[#d1d1d1]"
+                    className="flex h-6.5 w-6.5 items-center justify-center rounded-[5px] bg-[#303134] text-[#d1d1d1]"
                   >
                     <PlusIcon />
                   </button>
@@ -819,17 +1076,16 @@ export default function CardModal({
               <div>
                 <h3 className="text-[13.101px] font-semibold text-[#d1d1d1]">Data de Entrega</h3>
                 <div className="mt-2 flex items-center gap-2">
-                  <button type="button" onClick={(event) => openDatePopover(event.currentTarget)} className="flex h-[33px] w-[33px] items-center justify-center rounded-[6px] bg-[#303134] text-[#d1d1d1]">
-                    <PlusIcon />
-                  </button>
                   <button
                     type="button"
                     onClick={(event) => openDatePopover(event.currentTarget)}
-                    className="flex h-[33px] w-[245px] items-center gap-2 rounded-[6px] bg-[#303134] px-3 text-left"
+                    className="flex h-8.25 w-full max-w-80 items-center rounded-[6px] bg-[#303134] px-3 text-left"
                   >
-                    <span className="text-[13.101px] font-semibold text-[#d1d1d1]">{formatDueDateWithTime(cardState.dueDate)}</span>
-                    {dueStatus && <span className={`rounded-[2px] px-1 py-0.5 text-[10px] font-semibold ${dueStatus.className}`}>{dueStatus.label}</span>}
-                    <span className="ml-auto">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="whitespace-nowrap text-[13.101px] font-semibold text-[#d1d1d1]">{formatDueDateWithTime(cardState.dueDate)}</span>
+                      {dueStatus && <span className={`shrink-0 rounded-[2px] px-1.5 py-0.5 text-[10px] font-semibold ${dueStatus.className}`}>{dueStatus.label}</span>}
+                    </span>
+                    <span className="ml-auto shrink-0">
                       <ChevronIcon />
                     </span>
                   </button>
@@ -850,13 +1106,27 @@ export default function CardModal({
             />
 
             {showMembersMenu && (
-              <div className="mt-3 rounded-[8px] border border-[#3f3f3f] bg-[#303134] p-3">
-                <div className="grid gap-2">
+              <div className="mt-3 rounded-xl border border-[#3f3f3f] bg-[#303134] px-2">
+                <div className="grid gap-0">
                   {members.map((member) => {
                     const selected = cardState.memberIds.includes(member.id)
                     return (
-                      <label key={member.id} className="flex cursor-pointer items-center gap-2 rounded-[6px] border border-[#3f3f3f] px-2 py-1.5">
-                        <input type="checkbox" checked={selected} onChange={() => toggleMember(member.id)} className="h-4 w-4 accent-[#ff0068]" />
+                      <label key={member.id} className="flex cursor-pointer items-center gap-2 border-b border-[#3f3f3f] px-2 py-2 last:border-b-0">
+                        <span className="relative inline-flex h-4 w-4 shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleMember(member.id)}
+                            className="peer h-4 w-4 appearance-none rounded-[3px] border border-[#d1d1d1] bg-transparent checked:border-[#ff0068] checked:bg-[#ff0068]"
+                          />
+                          <svg
+                            viewBox="0 0 12 12"
+                            className="pointer-events-none absolute left-0 top-0 h-4 w-4 scale-75 opacity-0 transition peer-checked:scale-100 peer-checked:opacity-100"
+                            aria-hidden="true"
+                          >
+                            <path d="M2.3 6.2L4.9 8.6L9.7 3.8" fill="none" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
                         <span className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white" style={{ backgroundColor: member.color }}>
                           {member.initials}
                         </span>
@@ -869,7 +1139,7 @@ export default function CardModal({
               </div>
             )}
 
-            <div className="mt-4">
+            <div ref={descriptionSectionRef} className="mt-4">
               <h3 className="text-[13.101px] font-semibold text-[#d1d1d1]">{'Descri\u00e7\u00e3o'}</h3>
               <DescriptionEditor
                 value={cardState.description}
@@ -894,6 +1164,7 @@ export default function CardModal({
                     onCancelDraft={() => setChecklistDraftItems((prev) => ({ ...prev, [checklist.id]: '' }))}
                     onToggleItem={(itemId) => toggleChecklistItem(checklist.id, itemId)}
                     onUpdateItem={(itemId, content) => updateChecklistItem(checklist.id, itemId, content)}
+                    onRenameChecklist={(title) => renameChecklist(checklist.id, title)}
                     onRemoveItem={(itemId) => removeChecklistItem(checklist.id, itemId)}
                     onRemoveChecklist={() => removeChecklist(checklist.id)}
                   />
@@ -905,20 +1176,102 @@ export default function CardModal({
               <h3 className="text-[13.101px] font-semibold text-[#d1d1d1]">Anexos</h3>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const panelWidth = 560
+                  const viewportPadding = 12
+                  const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
+                  const top = rect.bottom + 8
                   setLinkDraft({ title: '', url: '', type: 'other' })
                   setLinkError('')
-                  setShowLinkForm((prev) => !prev)
+                  setShowLinkForm((prev) => {
+                    const next = !prev
+                    setLinkFormPanel(next ? { top, left } : null)
+                    return next
+                  })
                 }}
-                className="flex h-[33px] w-[102px] items-center justify-center gap-1 rounded-[6px] bg-[#303134] text-[13.101px] font-semibold text-[#d1d1d1]"
+                data-link-form-trigger="true"
+                className="flex h-8.25 w-25.5 items-center justify-center gap-1 rounded-[6px] bg-[#303134] text-[13.101px] font-semibold text-[#d1d1d1]"
               >
                 <PlusIcon />
                 Adicionar
               </button>
             </div>
 
-            {showLinkForm && (
-              <div className="mt-3 rounded-[8px] border border-[#3f3f3f] bg-[#303134] p-3">
+            <h4 className="mt-2 text-[13.101px] font-semibold text-[#d1d1d1]">Arquivos</h4>
+            <div className="mt-2 space-y-2 pb-2">
+              {cardState.links.map((link) => (
+                <article key={link.id} className="relative flex min-h-12.25 items-center rounded-[5px] bg-[#303134] px-3 py-2">
+                  <LinkTypeIcon type={link.type || detectLinkType(link.url)} />
+                  <div className="ml-3 min-w-0 flex-1">
+                    <a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-[16px] font-semibold leading-tight text-[#d1d1d1] hover:text-[#ff0068]">
+                      {link.title}
+                    </a>
+                    <p className="truncate text-[12px] font-semibold text-[#d1d1d1]">{formatAttachmentMeta(link.createdAt)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    data-attachment-menu-trigger="true"
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      const menuWidth = 140
+                      const viewportPadding = 8
+                      const left = Math.min(window.innerWidth - menuWidth - viewportPadding, Math.max(viewportPadding, rect.right - menuWidth))
+                      setOpenedLinkMenuId((prev) => (prev === link.id ? null : link.id))
+                      setAttachmentMenu((prev) =>
+                        prev?.id === link.id
+                          ? null
+                          : {
+                              id: link.id,
+                              top: rect.bottom + 6,
+                              left
+                            }
+                      )
+                    }}
+                    className="ml-2 rounded-[6px]"
+                  >
+                    <DotsIcon />
+                  </button>
+                </article>
+              ))}
+
+              {cardState.links.length === 0 && <p className="text-sm text-[#8b8b8b]">Nenhum arquivo linkado.</p>}
+            </div>
+            {attachmentMenu && openedLinkMenuId === attachmentMenu.id && (
+              <div
+                data-attachment-menu="true"
+                style={{ top: attachmentMenu.top, left: attachmentMenu.left }}
+                className="fixed z-80 w-35 rounded-xl border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    const link = cardState.links.find((item) => item.id === attachmentMenu.id)
+                    if (!link) {
+                      setAttachmentMenu(null)
+                      return
+                    }
+                    editLink(link)
+                  }}
+                  className="block w-full rounded-[6px] px-3 py-2 text-left text-sm text-[#d1d1d1] hover:bg-[#3a3b3f]"
+                >
+                  Editar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeLink(attachmentMenu.id)}
+                  className="block w-full rounded-[6px] px-3 py-2 text-left text-sm text-[#da7e77] hover:bg-[#820002]/30"
+                >
+                  Excluir
+                </button>
+              </div>
+            )}
+            {showLinkForm && linkFormPanel && (
+              <div
+                data-link-form="true"
+                style={{ top: linkFormPanel.top, left: linkFormPanel.left }}
+                className="fixed z-80 w-full max-w-140 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 shadow-2xl"
+              >
                 <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
                   <input
                     value={linkDraft.title}
@@ -951,6 +1304,7 @@ export default function CardModal({
                     type="button"
                     onClick={() => {
                       setShowLinkForm(false)
+                      setLinkFormPanel(null)
                       setLinkDraft({ title: '', url: '', type: 'other' })
                       setLinkError('')
                     }}
@@ -961,40 +1315,9 @@ export default function CardModal({
                 </div>
               </div>
             )}
-
-            <h4 className="mt-2 text-[13.101px] font-semibold text-[#d1d1d1]">Arquivos</h4>
-            <div className="mt-2 space-y-2 pb-2">
-              {cardState.links.map((link) => (
-                <article key={link.id} className="relative flex min-h-[49px] items-center rounded-[5px] bg-[#303134] px-3 py-2">
-                  <LinkTypeIcon type={link.type || detectLinkType(link.url)} />
-                  <div className="ml-3 min-w-0 flex-1">
-                    <a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-[16px] font-semibold leading-tight text-[#d1d1d1] hover:text-[#ff0068]">
-                      {link.title}
-                    </a>
-                    <p className="truncate text-[12px] font-semibold text-[#d1d1d1]">{formatAttachmentMeta(link.createdAt)}</p>
-                  </div>
-                  <button type="button" onClick={() => setOpenedLinkMenuId((prev) => (prev === link.id ? null : link.id))} className="ml-2 rounded-[6px]">
-                    <DotsIcon />
-                  </button>
-
-                  {openedLinkMenuId === link.id && (
-                    <div className="absolute right-3 top-[42px] z-10 w-[120px] rounded-[8px] border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl">
-                      <button type="button" onClick={() => editLink(link)} className="block w-full rounded-[6px] px-3 py-2 text-left text-sm text-[#d1d1d1] hover:bg-[#3a3b3f]">
-                        Editar
-                      </button>
-                      <button type="button" onClick={() => removeLink(link.id)} className="block w-full rounded-[6px] px-3 py-2 text-left text-sm text-[#da7e77] hover:bg-[#820002]/30">
-                        Excluir
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))}
-
-              {cardState.links.length === 0 && <p className="text-sm text-[#8b8b8b]">Nenhum arquivo linkado.</p>}
-            </div>
           </section>
 
-          <aside className="custom-scrollbar overflow-y-auto border-t border-[#2f3033] bg-[#18191a] px-4 py-5 lg:border-l lg:border-t-0 lg:px-4 lg:py-[21px]">
+          <aside className="custom-scrollbar overflow-y-auto border-t border-[#2f3033] bg-[#18191a] px-4 py-5 lg:border-l lg:border-t-0 lg:px-4 lg:py-5.25">
             <h3 className="text-[16px] font-bold text-[#d1d1d1]">{'Coment\u00e1rios e atividades'}</h3>
             <div className="mt-2 rounded-[7px] bg-[#303134] px-2">
               <input
@@ -1007,20 +1330,34 @@ export default function CardModal({
                   }
                 }}
                 placeholder={'Escrever um coment\u00e1rio...'}
-                className="h-[33px] w-full bg-transparent text-[12px] text-[#d1d1d1] placeholder:text-[#5b5858] outline-none"
+                maxLength={COMMENT_MAX_LENGTH}
+                className="h-8.25 w-full bg-transparent text-[12px] text-[#d1d1d1] placeholder:text-[#5b5858] outline-none"
               />
             </div>
+            <p className="mt-1 text-right text-[10px] text-[#8b8b8b]">
+              {commentText.length}/{COMMENT_MAX_LENGTH}
+            </p>
 
             <div className="mt-4 space-y-4">
               {timeline.map((activity) => (
                 <article key={activity.id} className="flex items-start gap-2">
-                  <span className="mt-0.5 flex h-[31px] w-[31px] items-center justify-center rounded-full bg-[#ff0068] text-[9px] font-semibold text-white">
+                  <span className="mt-0.5 flex h-7.75 w-7.75 shrink-0 items-center justify-center rounded-full bg-[#ff0068] text-[9px] font-semibold text-white">
                     {activity.actorInitials}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[16px] leading-tight text-[#d1d1d1]">
-                      <span className="font-bold">{activity.actorName}</span> {activity.message}
-                    </p>
+                    {activity.type === 'comment' ? (
+                      <>
+                        <p className="flex items-center gap-1 text-[16px] leading-tight text-[#d1d1d1]">
+                          <MessageSquareText className="size-3.5 shrink-0 text-[#9f9f9f]" />
+                          <span className="font-bold">{activity.actorName}</span>: Deixou um novo comentario.
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap wrap-break-word text-[15px] font-normal leading-[1.35] text-[#d1d1d1]">{normalizeLegacyText(activity.message)}</p>
+                      </>
+                    ) : (
+                      <p className="text-[16px] leading-tight text-[#d1d1d1]">
+                        <span className="font-bold">{activity.actorName}</span>: {normalizeLegacyText(activity.message)}
+                      </p>
+                    )}
                     <p className="mt-1 text-[10px] text-[#d1d1d1]">
                       {'adicionado h\u00e1 '}<span className="text-[#ff0068]">{relativeTimeFromNow(activity.createdAt)}</span>{' atr\u00e1s.'}
                     </p>

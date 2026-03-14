@@ -10,6 +10,20 @@ Este arquivo rastreia o progresso do desenvolvimento, decisões técnicas e tare
 
 ## Histórico de Alterações
 
+### [13/03/2026] - Padronização de Encoding, MCP e Qualidade de Front
+
+- **Encoding Global (UTF-8)**:
+  - Adicionado `.editorconfig` com `charset = utf-8`.
+  - Adicionado `.gitattributes` para normalização de texto no Git.
+  - Removidos BOMs remanescentes dos arquivos do projeto.
+- **MCP**:
+  - Adicionado servidor `context7` em `.mcp.json` para consulta de documentação atualizada de bibliotecas.
+- **UI / Tailwind**:
+  - Ajustadas classes para forma canônica em componentes com warnings ativos.
+  - Base voltou a ficar sem erros de lint e build.
+- **Documentação**:
+  - README, PROJECT_STATUS e backlog ajustados para refletir o estado real do código em 13/03/2026.
+
 ### [07/01/2026] - Correções e Melhorias de Interface
 
 #### Correções Críticas

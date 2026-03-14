@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef } from 'react'
+import { Calendar, Clock3 } from 'lucide-react'
 
 type DatePopoverProps = {
   isOpen: boolean
@@ -105,13 +106,13 @@ export default function DatePopover({
     <div
       ref={popoverRef}
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
-      className="fixed z-[75] rounded-[10px] border border-[#3f3f3f] bg-[#2a2b2f] p-3 shadow-2xl"
+      className="fixed z-75 rounded-[10px] border border-[#3f3f3f] bg-[#2a2b2f] p-3 shadow-2xl"
       role="dialog"
       aria-label={'Configura\u00e7\u00e3o de data de entrega'}
     >
       <div className="flex items-center justify-between">
         <h4 className="text-[16px] font-semibold text-[#d1d1d1]">Datas</h4>
-        <button type="button" onClick={onClose} className="rounded-[4px] px-1 text-[20px] leading-none text-[#8b8b8b] hover:text-white" aria-label="Fechar datas">
+        <button type="button" onClick={onClose} className="rounded-lg px-1 text-[20px] leading-none text-[#8b8b8b] hover:text-white" aria-label="Fechar datas">
           &times;
         </button>
       </div>
@@ -119,19 +120,25 @@ export default function DatePopover({
       <div className="mt-3">
         <p className="text-sm font-semibold text-[#d1d1d1]">Data de entrega</p>
         <div className="mt-2 grid grid-cols-[1fr_120px] gap-2">
-          <input
-            type="date"
-            value={dueDate}
-            min={getTodayDate()}
-            onChange={(event) => onDateChange(event.target.value)}
-            className="h-10 rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] outline-none focus:border-[#ff0068]"
-          />
-          <input
-            type="time"
-            value={dueTime}
-            onChange={(event) => onTimeChange(event.target.value)}
-            className="h-10 rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] outline-none focus:border-[#ff0068]"
-          />
+          <div className="relative">
+            <input
+              type="date"
+              value={dueDate}
+              min={getTodayDate()}
+              onChange={(event) => onDateChange(event.target.value)}
+              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 focus:border-[#ff0068]"
+            />
+            <Calendar className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
+          </div>
+          <div className="relative">
+            <input
+              type="time"
+              value={dueTime}
+              onChange={(event) => onTimeChange(event.target.value)}
+              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 focus:border-[#ff0068]"
+            />
+            <Clock3 className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import BoardPage from "@/pages/BoardPage"
+import BoardPage from "@/pages/BoardPage"
 import LoginPage from "@/components/auth/LoginPage"
 import { useAuthSession } from "@/hooks/useAuthSession"
 

@@ -2,6 +2,15 @@
 
 Este documento serve como a fonte oficial da verdade para o estado atual do projeto, documentando o que foi feito, o que está funcionando e o que ainda precisa ser implementado.
 
+## Atualização técnica real (13/03/2026)
+
+- Stack em uso no código: React + TypeScript + Vite + Tailwind + shadcn/ui + dnd-kit + Supabase Auth.
+- Persistência do domínio de board ainda está em `localStorage` via `boardService.ts`.
+- Supabase hoje está aplicado em autenticação e RPC de rate limit de login.
+- Realtime de board, modelagem relacional de cards/lists/boards e RLS de domínio ainda não estão ativos no fluxo principal.
+- Fluxo de links no card está ativo; upload com Firebase permanece legado no repositório e não está conectado ao fluxo principal.
+- Projeto padronizado para UTF-8 com `.editorconfig` e `.gitattributes`.
+
 ## 📅 Atualizado em: 07/01/2026
 
 ## 🚀 Estado Atual
