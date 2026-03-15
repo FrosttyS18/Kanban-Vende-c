@@ -65,6 +65,31 @@ export interface Activity {
   createdAt: string
 }
 
+export type CardActivityEventType =
+  | 'card_created'
+  | 'card_moved'
+  | 'briefing_updated'
+  | 'due_date_updated'
+  | 'due_date_removed'
+  | 'member_added'
+  | 'member_removed'
+  | 'checklist_created'
+  | 'checklist_renamed'
+  | 'checklist_deleted'
+  | 'link_added'
+  | 'link_updated'
+  | 'link_removed'
+  | 'comment_added'
+  | 'card_renamed'
+
+export interface RecordCardActivityInput {
+  cardId: string
+  eventType: CardActivityEventType
+  message: string
+  activityType?: Activity['type']
+  dedupeWindowMinutes?: number
+}
+
 export interface MemberNotification {
   id: string
   memberId: string

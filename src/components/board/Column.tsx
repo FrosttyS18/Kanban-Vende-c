@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import Card from '@/components/board/Card'
-import { type CardData, type ColumnData, type Label, type Member } from '@/types'
+import { type CardData, type ColumnData, type Label, type Member, type RecordCardActivityInput } from '@/types'
 
 const LIST_TITLE_MAX_LENGTH = 150
 
@@ -25,6 +25,7 @@ type Props = {
   boardMembers: Member[]
   currentMemberId: string
   boardId: string
+  onRecordActivity: (cardId: string, input: Omit<RecordCardActivityInput, 'cardId'>) => void
   closeCardModalSignal?: number
   onCardOpen: (cardId: string) => void
   onCardClose: () => void
@@ -84,6 +85,7 @@ export default function Column({
   boardMembers,
   currentMemberId,
   boardId,
+  onRecordActivity,
   closeCardModalSignal,
   onCardOpen,
   onCardClose,
@@ -264,6 +266,7 @@ export default function Column({
               boardMembers={boardMembers}
               currentMemberId={currentMemberId}
               boardId={boardId}
+              onRecordActivity={onRecordActivity}
               closeModalSignal={closeCardModalSignal}
               onOpenModal={onCardOpen}
               onCloseModal={onCardClose}

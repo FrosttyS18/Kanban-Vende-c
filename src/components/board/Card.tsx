@@ -4,7 +4,7 @@ import { Archive, Clock3, Paperclip, Trash2, User } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import CardModal from './CardModal'
-import { type CardData, type Label, type Member } from '@/types'
+import { type CardData, type Label, type Member, type RecordCardActivityInput } from '@/types'
 
 type CardProps = {
   card: CardData
@@ -15,6 +15,7 @@ type CardProps = {
   boardMembers: Member[]
   currentMemberId: string
   boardId: string
+  onRecordActivity?: (cardId: string, input: Omit<RecordCardActivityInput, 'cardId'>) => void
   closeModalSignal?: number
   onOpenModal?: (cardId: string) => void
   onCloseModal?: (cardId: string) => void
@@ -121,6 +122,7 @@ export default function Card({
   boardMembers,
   currentMemberId,
   boardId,
+  onRecordActivity,
   closeModalSignal,
   onOpenModal,
   onCloseModal,
@@ -288,6 +290,7 @@ export default function Card({
           members={boardMembers}
           currentMemberId={currentMemberId}
           boardId={boardId}
+          onRecordActivity={(input) => onRecordActivity?.(card.id, input)}
           onMoveToList={(listId) => onUpdate?.(card.id, { listId })}
           onUpdate={(updates) => onUpdate?.(card.id, updates)}
           onDelete={onDelete ? () => onDelete(card.id) : undefined}

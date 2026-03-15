@@ -12,6 +12,7 @@ import {
   type LinkAttachment,
   type Member,
   type MemberNotification,
+  type RecordCardActivityInput,
   type SharePermission
 } from '@/types'
 
@@ -696,9 +697,14 @@ function invalidateBoardStoreCache(boardId?: string): void {
   boardStoreCacheByKey.delete(getStoreCacheKey())
 }
 
-export async function loadBoardStoreFromRemote(selectedBoardId?: string): Promise<BoardStore> {
+export async function loadBoardStoreFromRemote(selectedBoardId?: string, options?: { forceRefresh?: boolean }): Promise<BoardStore> {
   const cacheKey = getStoreCacheKey(selectedBoardId)
   const now = Date.now()
+  const forceRefresh = options?.forceRefresh === true
+
+  if (forceRefresh) {
+    boardStoreCacheByKey.delete(cacheKey)
+  }
 
   const cachedEntry = boardStoreCacheByKey.get(cacheKey)
   if (cachedEntry && cachedEntry.expiresAt > now) {
@@ -992,28 +998,6 @@ async function replaceCardChecklistsRemote(cardId: string, checklists: Checklist
   }
 }
 
-async function replaceCardActivitiesRemote(cardId: string, activities: Activity[]): Promise<void> {
-  const { error: clearError } = await supabase.from('card_activities').delete().eq('card_id', cardId)
-  if (clearError) {
-    throw new Error(clearError.message)
-  }
-  if (activities.length === 0) {
-    return
-  }
-  const rows = activities.map((activity) => ({
-    id: activity.id,
-    card_id: cardId,
-    actor_id: isUuid(activity.actorId) ? activity.actorId : null,
-    type: activity.type,
-    message: activity.message,
-    created_at: activity.createdAt
-  }))
-  const { error: insertError } = await supabase.from('card_activities').insert(rows)
-  if (insertError) {
-    throw new Error(insertError.message)
-  }
-}
-
 async function getBoardIdByCardId(cardId: string): Promise<string | undefined> {
   const { data: cardRow, error: cardLookupError } = await supabase.from('cards').select('list_id').eq('id', cardId).maybeSingle()
   if (cardLookupError) {
@@ -1056,7 +1040,6 @@ export async function upsertCardRemote(boardId: string, card: CardData): Promise
   await replaceCardMembersRemote(card.id, card.memberIds)
   await replaceCardLinksRemote(card.id, card.links)
   await replaceCardChecklistsRemote(card.id, card.checklists)
-  await replaceCardActivitiesRemote(card.id, card.activities)
   invalidateBoardStoreCache(boardId)
 }
 
@@ -1095,7 +1078,24 @@ export async function createCardRemote(boardId: string, card: CardData): Promise
   await replaceCardMembersRemote(card.id, card.memberIds)
   await replaceCardLinksRemote(card.id, card.links)
   await replaceCardChecklistsRemote(card.id, card.checklists)
-  await replaceCardActivitiesRemote(card.id, card.activities)
+  invalidateBoardStoreCache(boardId)
+}
+
+export async function recordCardActivityRemote(input: RecordCardActivityInput): Promise<void> {
+  const boardId = await getBoardIdByCardId(input.cardId)
+
+  const { error } = await supabase.rpc('record_card_activity', {
+    p_card_id: input.cardId,
+    p_event_type: input.eventType,
+    p_message: input.message,
+    p_activity_type: input.activityType ?? 'system',
+    p_dedupe_window_minutes: input.dedupeWindowMinutes ?? 0
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
   invalidateBoardStoreCache(boardId)
 }
 

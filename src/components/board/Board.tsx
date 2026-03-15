@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import {
   DndContext,
@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
-import { type Activity, type BoardData, type BoardShareSettings, type BoardStore, type CardData, type ColumnData, type Label, type MemberNotification } from '@/types'
+import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import {
   archiveCardRemote,
@@ -30,6 +30,7 @@ import {
   deleteListRemote,
   insertNotificationsRemote,
   loadBoardStoreFromRemote,
+  recordCardActivityRemote,
   replaceBoardLabelsRemote,
   replaceBoardShareSettingsRemote,
   reorderListsRemote,
@@ -61,8 +62,6 @@ type BoardProps = {
 }
 
 const LIST_TITLE_MAX_LENGTH = 150
-const ACTIVITY_COOLDOWN_MS = 15000
-const MAX_CARD_ACTIVITIES = 120
 const BOARD_COLOR_OPTIONS = [
   '#ff0068',
   '#ff2d55',
@@ -97,19 +96,6 @@ const EMPTY_STORE: BoardStore = {
   members: [],
   currentBoardId: '',
   currentMemberId: ''
-}
-
-function shouldThrottleCompletionActivity(activity: Activity, actorId: string, nowMs: number): boolean {
-  if (activity.type !== 'system' || activity.actorId !== actorId) {
-    return false
-  }
-
-  if (!activity.message.startsWith('marcou como')) {
-    return false
-  }
-
-  const activityTimeMs = new Date(activity.createdAt).getTime()
-  return nowMs - activityTimeMs <= ACTIVITY_COOLDOWN_MS
 }
 
 export default function Board({
@@ -147,11 +133,11 @@ export default function Board({
   )
 
   const loadStore = useCallback(
-    async (preferredBoardId?: string) => {
+    async (preferredBoardId?: string, options?: { forceRefresh?: boolean }) => {
       setIsLoadingStore(true)
       setStoreError(null)
       try {
-        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId)
+        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, options)
         setStore(nextStore)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
@@ -261,7 +247,7 @@ export default function Board({
         window.clearTimeout(realtimeReloadTimer.current)
       }
       realtimeReloadTimer.current = window.setTimeout(() => {
-        void loadStore(activeBoardId)
+        void loadStore(activeBoardId, { forceRefresh: true })
       }, REALTIME_RELOAD_DEBOUNCE_MS)
     }, store.currentMemberId)
 
@@ -319,6 +305,36 @@ export default function Board({
   const activeCard = activeCardId ? store.cards.find((card) => card.id === activeCardId) ?? null : null
   const activeColumn = activeColumnId ? store.columns.find((column) => column.id === activeColumnId) ?? null : null
 
+  const recordActivity = useCallback(
+    (cardId: string, eventType: CardActivityEventType, message: string, options?: { activityType?: RecordCardActivityInput['activityType']; dedupeWindowMinutes?: number }) => {
+      const normalizedMessage = message.trim()
+      if (!normalizedMessage) {
+        return
+      }
+
+      void recordCardActivityRemote({
+        cardId,
+        eventType,
+        message: normalizedMessage,
+        activityType: options?.activityType,
+        dedupeWindowMinutes: options?.dedupeWindowMinutes
+      }).catch(() => {
+        void loadStore(activeBoardId)
+      })
+    },
+    [activeBoardId, loadStore]
+  )
+
+  const handleRecordCardActivity = useCallback(
+    (cardId: string, input: Omit<RecordCardActivityInput, 'cardId'>) => {
+      recordActivity(cardId, input.eventType, input.message, {
+        activityType: input.activityType,
+        dedupeWindowMinutes: input.dedupeWindowMinutes
+      })
+    },
+    [recordActivity]
+  )
+
   const updateCardInStore = (cardId: string, updates: Partial<CardData>) => {
     if (updates.dueDate) {
       const startOfToday = new Date()
@@ -334,82 +350,59 @@ export default function Board({
     setStore((prev) => {
       const actor = prev.members.find((member) => member.id === prev.currentMemberId)
       const nowIso = new Date().toISOString()
-      const nowMs = new Date(nowIso).getTime()
-
       let nextNotifications = prev.notifications
 
       const nextCards = prev.cards.map((card) => {
-          if (card.id !== cardId) {
-            return card
-          }
+        if (card.id !== cardId) {
+          return card
+        }
 
-          const nextCard: CardData = {
-            ...card,
-            ...updates,
-            activities: Array.isArray(updates.activities) ? updates.activities.slice(0, MAX_CARD_ACTIVITIES) : card.activities.slice(0, MAX_CARD_ACTIVITIES),
-            updatedAt: nowIso
-          }
+        const nextCard: CardData = {
+          ...card,
+          ...updates,
+          updatedAt: nowIso
+        }
 
-          if (updates.activities || !actor) {
-            return nextCard
-          }
-
-          if (Array.isArray(updates.memberIds)) {
-            const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
-            if (addedMemberIds.length > 0) {
-              const memberNotifications = addedMemberIds
-                .filter((memberId) => memberId !== actor.id)
-                .map((memberId) => {
-                  const targetMember = prev.members.find((member) => member.id === memberId)
-                  if (!targetMember) {
-                    return null
-                  }
-
-                  return {
-                    id: createId('notif'),
-                    memberId: targetMember.id,
-                    boardId: activeBoardId,
-                    cardId: card.id,
-                    type: 'member_assigned' as const,
-                    title: 'Você foi adicionado em um cartão',
-                    message: `${actor.name} adicionou você em "${card.title}".`,
-                    createdAt: nowIso,
-                    isRead: false
-                  }
-                })
-                .filter((item): item is MemberNotification => item !== null)
-
-              if (memberNotifications.length > 0) {
-                nextNotifications = [...prev.notifications, ...memberNotifications]
-                notificationsToPersist = memberNotifications
-              }
-            }
-          }
-
-          if (typeof updates.isCompleted === 'boolean' && updates.isCompleted !== card.isCompleted) {
-            const message = updates.isCompleted ? 'marcou como concluído' : 'marcou como pendente'
-            const activity: Activity = {
-              id: createId('activity'),
-              type: 'system',
-              actorId: actor.id,
-              actorName: actor.name,
-              actorInitials: actor.initials,
-              message,
-              createdAt: nowIso
-            }
-
-            const recentCompletionIndex = card.activities.findIndex((item) => shouldThrottleCompletionActivity(item, actor.id, nowMs))
-            if (recentCompletionIndex !== -1) {
-            nextCard.activities = [activity, ...card.activities.filter((_, index) => index !== recentCompletionIndex)].slice(0, MAX_CARD_ACTIVITIES)
-              return nextCard
-            }
-
-            nextCard.activities = [activity, ...card.activities].slice(0, MAX_CARD_ACTIVITIES)
-          }
-
+        if (!actor) {
           cardToPersist = nextCard
           return nextCard
-        })
+        }
+
+        if (Array.isArray(updates.memberIds)) {
+          const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
+          if (addedMemberIds.length > 0) {
+            const memberNotifications = addedMemberIds
+              .filter((memberId) => memberId !== actor.id)
+              .map((memberId) => {
+                const targetMember = prev.members.find((member) => member.id === memberId)
+                if (!targetMember) {
+                  return null
+                }
+
+                return {
+                  id: createId('notif'),
+                  memberId: targetMember.id,
+                  boardId: activeBoardId,
+                  cardId: card.id,
+                  type: 'member_assigned' as const,
+                  title: 'VocÃª foi adicionado em um cartÃ£o',
+                  message: `${actor.name} adicionou vocÃª em "${card.title}".`,
+                  createdAt: nowIso,
+                  isRead: false
+                }
+              })
+              .filter((item): item is MemberNotification => item !== null)
+
+            if (memberNotifications.length > 0) {
+              nextNotifications = [...prev.notifications, ...memberNotifications]
+              notificationsToPersist = memberNotifications
+            }
+          }
+        }
+
+        cardToPersist = nextCard
+        return nextCard
+      })
 
       return {
         ...prev,
@@ -432,44 +425,28 @@ export default function Board({
   }
 
   const addCardToList = (listId: string, title: string, placement: 'top' | 'bottom') => {
-    let createdCard: CardData | null = null
+    const nowIso = new Date().toISOString()
+    const createdListTitle = currentColumns.find((column) => column.id === listId)?.title ?? 'Lista'
+    const createdCard: CardData = {
+      id: createId('card'),
+      listId,
+      title,
+      description: '',
+      labels: [],
+      memberIds: [],
+      isCompleted: false,
+      checklists: [],
+      links: [],
+      activities: [],
+      createdAt: nowIso,
+      updatedAt: nowIso
+    }
+
     let nextCardsPayload: CardData[] = []
+
     setStore((prev) => {
-      const nowIso = new Date().toISOString()
-      const actor = prev.members.find((member) => member.id === prev.currentMemberId)
-      const listName = prev.columns.find((column) => column.id === listId)?.title ?? 'Lista'
-      const creationActivity: Activity[] = actor
-        ? [
-            {
-              id: createId('activity'),
-              type: 'system',
-              actorId: actor.id,
-              actorName: actor.name,
-              actorInitials: actor.initials,
-              message: `adicionou este cartão a ${listName}.`,
-              createdAt: nowIso
-            }
-          ]
-        : []
-
-      const newCard: CardData = {
-        id: createId('card'),
-        listId,
-        title,
-        description: '',
-        labels: [],
-        memberIds: [],
-        isCompleted: false,
-        checklists: [],
-        links: [],
-        activities: creationActivity,
-        createdAt: nowIso,
-        updatedAt: nowIso
-      }
-      createdCard = newCard
-
       if (placement === 'bottom') {
-        nextCardsPayload = [...prev.cards, newCard]
+        nextCardsPayload = [...prev.cards, createdCard]
         return {
           ...prev,
           cards: nextCardsPayload
@@ -478,7 +455,7 @@ export default function Board({
 
       const insertIndex = prev.cards.findIndex((card) => card.listId === listId)
       if (insertIndex === -1) {
-        nextCardsPayload = [...prev.cards, newCard]
+        nextCardsPayload = [...prev.cards, createdCard]
         return {
           ...prev,
           cards: nextCardsPayload
@@ -486,7 +463,7 @@ export default function Board({
       }
 
       const nextCards = [...prev.cards]
-      nextCards.splice(insertIndex, 0, newCard)
+      nextCards.splice(insertIndex, 0, createdCard)
       nextCardsPayload = nextCards
 
       return {
@@ -495,15 +472,18 @@ export default function Board({
       }
     })
 
-    if (createdCard) {
-      void createCardRemote(activeBoardId, createdCard).catch(() => {
+    void createCardRemote(activeBoardId, createdCard)
+      .then(() => {
+        recordActivity(createdCard.id, 'card_created', `adicionou este cartÃ£o a ${createdListTitle}.`)
+      })
+      .catch(() => {
         void loadStore(activeBoardId)
       })
-      if (nextCardsPayload.length > 0) {
-        void syncCardsOrderingRemote(activeBoardId, currentColumns, nextCardsPayload).catch(() => {
-          void loadStore(activeBoardId)
-        })
-      }
+
+    if (nextCardsPayload.length > 0) {
+      void syncCardsOrderingRemote(activeBoardId, currentColumns, nextCardsPayload).catch(() => {
+        void loadStore(activeBoardId)
+      })
     }
   }
 
@@ -668,8 +648,7 @@ export default function Board({
       }
       cardsToPersistMap.set(card.id, {
         ...card,
-        memberIds: filteredMemberIds,
-        activities: card.activities.slice(0, MAX_CARD_ACTIVITIES)
+        memberIds: filteredMemberIds
       })
     })
 
@@ -852,10 +831,9 @@ export default function Board({
       const targetListTitle = currentColumns.find((column) => column.id === targetListId)?.title ?? 'Lista'
 
       let cardsToSyncPayload: CardData[] = []
-      let movedCardToPersist: CardData | null = null
+      let shouldRecordMoveActivity = false
 
       setStore((prev) => {
-        const actor = prev.members.find((member) => member.id === prev.currentMemberId)
         const nowIso = new Date().toISOString()
         const nextCards = prev.cards.map((card) => {
           if (card.id !== activeCardId) {
@@ -868,27 +846,8 @@ export default function Board({
             updatedAt: nowIso
           }
 
-          if (!movedAcrossLists || !actor) {
-            movedCardToPersist = baseCard
-            return baseCard
-          }
-
-          const activity: Activity = {
-            id: createId('activity'),
-            type: 'system',
-            actorId: actor.id,
-            actorName: actor.name,
-            actorInitials: actor.initials,
-            message: `moveu o cartão para ${targetListTitle}.`,
-            createdAt: nowIso
-          }
-
-          const withActivity: CardData = {
-            ...baseCard,
-            activities: [activity, ...card.activities].slice(0, MAX_CARD_ACTIVITIES)
-          }
-          movedCardToPersist = withActivity
-          return withActivity
+          shouldRecordMoveActivity = movedAcrossLists
+          return baseCard
         })
 
         cardsToSyncPayload = nextCards.filter((card) => currentBoardCardListIds.has(card.listId))
@@ -898,10 +857,14 @@ export default function Board({
         }
       })
 
+      const movedCardToPersist = cardsToSyncPayload.find((card) => card.id === activeCardId)
       if (movedCardToPersist) {
         void upsertCardRemote(activeBoardId, movedCardToPersist).catch(() => {
           void loadStore(activeBoardId)
         })
+        if (shouldRecordMoveActivity) {
+          recordActivity(movedCardToPersist.id, 'card_moved', `moveu o cartÃ£o para ${targetListTitle}.`, { dedupeWindowMinutes: 10 })
+        }
       }
 
       void syncCardsOrderingRemote(activeBoardId, currentColumns, cardsToSyncPayload.length > 0 ? cardsToSyncPayload : store.cards).catch(() => {
@@ -1136,6 +1099,7 @@ export default function Board({
                   boardMembers={sharedBoardMembers}
                   currentMemberId={store.currentMemberId}
                   boardId={activeBoardId}
+                  onRecordActivity={handleRecordCardActivity}
                   closeCardModalSignal={closeCardModalSignal}
                   onCardOpen={(cardId) => onCardOpen?.(activeBoardId, cardId)}
                   onCardClose={() => onCardClose?.(activeBoardId)}
@@ -1152,7 +1116,7 @@ export default function Board({
                   className="h-11 w-full justify-start rounded-2xl bg-[#3f3f3f] px-4 text-[14px] font-medium text-[#d1d1d1] hover:bg-[#4a4a4a]"
                 >
                   <Plus className="mr-2 size-4" />
-                  Adicionar um cartão
+                  Adicionar um cartÃ£o
                 </Button>
               ) : (
                 <div className="space-y-2 rounded-2xl border border-white/10 bg-[#101204] p-3">
@@ -1212,6 +1176,7 @@ export default function Board({
                 boardMembers={sharedBoardMembers}
                 currentMemberId={store.currentMemberId}
                 boardId={activeBoardId}
+                onRecordActivity={() => undefined}
                 closeCardModalSignal={closeCardModalSignal}
                 onCardOpen={() => undefined}
                 onCardClose={() => undefined}
@@ -1228,6 +1193,7 @@ export default function Board({
                 boardMembers={sharedBoardMembers}
                 currentMemberId={store.currentMemberId}
                 boardId={activeBoardId}
+                onRecordActivity={handleRecordCardActivity}
                 onUpdate={updateCardInStore}
                 onDelete={deleteCard}
                 onArchive={archiveCard}
@@ -1249,7 +1215,7 @@ export default function Board({
               value={newBoardTitle}
               onChange={(event) => setNewBoardTitle(event.target.value)}
               className="mt-4 h-11 rounded-xl border border-primary bg-black px-3.5 text-[18px] font-semibold text-white placeholder:text-[#7d7d7d]"
-              placeholder="Nome do time/organização/área"
+              placeholder="Nome do time/organizaÃ§Ã£o/Ã¡rea"
               autoFocus
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -1310,4 +1276,5 @@ export default function Board({
     </div>
   )
 }
+
 

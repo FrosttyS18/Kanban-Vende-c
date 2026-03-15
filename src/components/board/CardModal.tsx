@@ -1,6 +1,6 @@
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquareText } from 'lucide-react'
-import { type Activity, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member } from '@/types'
+import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import ChecklistCreateMenu from '@/components/board/card-modal/ChecklistCreateMenu'
 import ChecklistBlock from '@/components/board/card-modal/ChecklistBlock'
@@ -21,6 +21,7 @@ type CardModalProps = {
   boardId: string
   onMoveToList: (listId: string) => void
   onUpdate: (updates: Partial<CardData>) => void
+  onRecordActivity?: (input: Omit<RecordCardActivityInput, 'cardId'>) => void
   onDelete?: () => void
   onArchive?: () => void
 }
@@ -45,8 +46,6 @@ type FloatingPanelState = {
 
 const DEFAULT_LABEL_COLOR = '#ff0068'
 const COMMENT_MAX_LENGTH = 1000
-const ACTIVITY_COOLDOWN_MS = 15000
-const MEMBER_ACTIVITY_COOLDOWN_MS = 45000
 const MAX_ACTIVITY_ITEMS = 120
 
 function formatDueDateWithTime(value?: string): string {
@@ -330,7 +329,8 @@ export default function CardModal({
   currentMemberId,
   boardId,
   onMoveToList,
-  onUpdate
+  onUpdate,
+  onRecordActivity
 }: CardModalProps) {
   const [cardState, setCardState] = useState<CardData>(card)
   const [isListMenuOpen, setIsListMenuOpen] = useState(false)
@@ -496,9 +496,9 @@ export default function CardModal({
     return null
   }
 
-  const appendActivity = (message: string, type: Activity['type'] = 'system') => {
+  const pushLocalActivity = (message: string, type: Activity['type'] = 'system'): Activity | null => {
     if (!actor) {
-      return
+      return null
     }
 
     const activity: Activity = {
@@ -511,43 +511,48 @@ export default function CardModal({
       createdAt: new Date().toISOString()
     }
 
-    const nowMs = new Date(activity.createdAt).getTime()
-    const recentCompletionIndex =
-      message.startsWith('marcou como')
-        ? cardState.activities.findIndex((item) => {
-            const itemTimeMs = new Date(item.createdAt).getTime()
-            return item.type === 'system' && item.actorId === activity.actorId && item.message.startsWith('marcou como') && nowMs - itemTimeMs <= ACTIVITY_COOLDOWN_MS
-          })
-        : -1
-    const recentMemberChangeIndex =
-      message.startsWith('adicionou membro') || message.startsWith('removeu membro')
-        ? cardState.activities.findIndex((item) => {
-            const itemTimeMs = new Date(item.createdAt).getTime()
-            return (
-              item.type === 'system' &&
-              item.actorId === activity.actorId &&
-              item.message === message &&
-              nowMs - itemTimeMs <= MEMBER_ACTIVITY_COOLDOWN_MS
-            )
-          })
-        : -1
-    const replaceIndex = recentCompletionIndex !== -1 ? recentCompletionIndex : recentMemberChangeIndex
+    setCardState((prev) => ({
+      ...prev,
+      activities: [activity, ...prev.activities].slice(0, MAX_ACTIVITY_ITEMS)
+    }))
 
-    const next =
-      replaceIndex !== -1 ? [activity, ...cardState.activities.filter((_, index) => index !== replaceIndex)] : [activity, ...cardState.activities]
-    const capped = next.slice(0, MAX_ACTIVITY_ITEMS)
-    setCardState((prev) => ({ ...prev, activities: capped }))
-    onUpdate({ activities: capped })
+    return activity
   }
 
-  const updateCard = (updates: Partial<CardData>, activityMessage?: string) => {
+  const recordActivity = (
+    eventType: CardActivityEventType,
+    message: string,
+    options?: { activityType?: RecordCardActivityInput['activityType']; dedupeWindowMinutes?: number }
+  ) => {
+    const normalizedMessage = message.trim()
+    if (!normalizedMessage) {
+      return
+    }
+
+    const nextActivityType = options?.activityType ?? 'system'
+    pushLocalActivity(normalizedMessage, nextActivityType)
+    onRecordActivity?.({
+      eventType,
+      message: normalizedMessage,
+      activityType: nextActivityType,
+      dedupeWindowMinutes: options?.dedupeWindowMinutes
+    })
+  }
+
+  const updateCard = (updates: Partial<CardData>) => {
     const nextUpdatedAt = new Date().toISOString()
     setCardState((prev) => ({ ...prev, ...updates, updatedAt: nextUpdatedAt }))
     onUpdate({ ...updates, updatedAt: nextUpdatedAt })
+  }
 
-    if (activityMessage) {
-      appendActivity(activityMessage)
-    }
+  const updateCardWithActivity = (
+    updates: Partial<CardData>,
+    eventType: CardActivityEventType,
+    message: string,
+    options?: { activityType?: RecordCardActivityInput['activityType']; dedupeWindowMinutes?: number }
+  ) => {
+    updateCard(updates)
+    recordActivity(eventType, message, options)
   }
 
   const startDescriptionEditing = () => {
@@ -572,7 +577,7 @@ export default function CardModal({
     }
 
     if (nextTitle !== cardState.title) {
-      updateCard({ title: nextTitle }, `renomeou o cartão para ${nextTitle}`)
+      updateCardWithActivity({ title: nextTitle }, 'card_renamed', `renomeou o cartão para ${nextTitle}`)
     }
     setIsTitleEditing(false)
   }
@@ -584,7 +589,7 @@ export default function CardModal({
 
   const saveDescription = () => {
     if (descriptionDraft !== cardState.description) {
-      updateCard({ description: descriptionDraft }, 'atualizou o briefing da demanda')
+      updateCardWithActivity({ description: descriptionDraft }, 'briefing_updated', 'atualizou o briefing da demanda')
     }
     setIsDescriptionEditing(false)
   }
@@ -606,9 +611,10 @@ export default function CardModal({
       return
     }
 
-    onMoveToList(listId)
     const listName = listOptions.find((option) => option.id === listId)?.title ?? 'Lista'
-    updateCard({ listId }, `moveu o cart\u00e3o para ${listName}`)
+    onMoveToList(listId)
+    setCardState((prev) => ({ ...prev, listId, updatedAt: new Date().toISOString() }))
+    recordActivity('card_moved', `moveu o cartão para ${listName}`, { dedupeWindowMinutes: 10 })
     setIsListMenuOpen(false)
   }
 
@@ -632,7 +638,7 @@ export default function CardModal({
     }
 
     onUpdateAvailableLabels([...availableLabels, label])
-    updateCard({ labels: [...cardState.labels, label] }, `criou a etiqueta ${name}`)
+    updateCard({ labels: [...cardState.labels, label] })
     setNewLabelName('')
     setNewLabelColor(DEFAULT_LABEL_COLOR)
     setLabelSearchValue('')
@@ -648,12 +654,11 @@ export default function CardModal({
   }
 
   const deleteLabel = (labelId: string) => {
-    const targetLabel = availableLabels.find((label) => label.id === labelId)
     const nextAvailable = availableLabels.filter((label) => label.id !== labelId)
     onUpdateAvailableLabels(nextAvailable)
 
     const nextCardLabels = cardState.labels.filter((label) => label.id !== labelId)
-    updateCard({ labels: nextCardLabels }, targetLabel ? `removeu a etiqueta ${targetLabel.text}` : 'removeu etiqueta')
+    updateCard({ labels: nextCardLabels })
   }
 
   const toggleMember = (memberId: string) => {
@@ -675,12 +680,16 @@ export default function CardModal({
 
       const hasLabelOnCard = cardState.labels.some((label) => label.id === labelToAttach.id)
       if (!hasLabelOnCard) {
-        updateCard({ memberIds: next, labels: [...cardState.labels, labelToAttach] }, `adicionou membro ${memberName}`)
+        updateCardWithActivity({ memberIds: next, labels: [...cardState.labels, labelToAttach] }, 'member_added', `adicionou membro ${memberName}`)
         return
       }
     }
 
-    updateCard({ memberIds: next }, exists ? `removeu membro ${memberName}` : `adicionou membro ${memberName}`)
+    updateCardWithActivity(
+      { memberIds: next },
+      exists ? 'member_removed' : 'member_added',
+      exists ? `removeu membro ${memberName}` : `adicionou membro ${memberName}`
+    )
   }
 
   const syncDueInputs = (dueDate?: string) => {
@@ -715,7 +724,7 @@ export default function CardModal({
 
   const saveDueDate = () => {
     if (!dueDateInput) {
-      updateCard({ dueDate: undefined }, 'removeu data de entrega')
+      updateCardWithActivity({ dueDate: undefined }, 'due_date_removed', 'removeu data de entrega')
       closeDatePopover()
       return
     }
@@ -726,7 +735,11 @@ export default function CardModal({
       return
     }
 
-    updateCard({ dueDate: parsed.toISOString() }, `definiu prazo para ${formatDueDateWithTime(parsed.toISOString())}`)
+    updateCardWithActivity(
+      { dueDate: parsed.toISOString() },
+      'due_date_updated',
+      `definiu prazo para ${formatDueDateWithTime(parsed.toISOString())}`
+    )
     closeDatePopover()
   }
 
@@ -735,7 +748,7 @@ export default function CardModal({
       closeDatePopover()
       return
     }
-    updateCard({ dueDate: undefined }, 'removeu data de entrega')
+    updateCardWithActivity({ dueDate: undefined }, 'due_date_removed', 'removeu data de entrega')
     closeDatePopover()
   }
 
@@ -746,7 +759,7 @@ export default function CardModal({
     }
 
     const checklist = { id: createId('checklist'), title, items: [] }
-    updateCard({ checklists: [...cardState.checklists, checklist] }, `criou checklist ${title}`)
+    updateCardWithActivity({ checklists: [...cardState.checklists, checklist] }, 'checklist_created', `criou checklist ${title}`)
     setNewChecklistTitle('')
     setShowChecklistCreateMenu(false)
     setChecklistAnchorEl(null)
@@ -759,7 +772,7 @@ export default function CardModal({
 
   const removeChecklist = (checklistId: string) => {
     const next = cardState.checklists.filter((item) => item.id !== checklistId)
-    updateCard({ checklists: next }, 'removeu checklist')
+    updateCardWithActivity({ checklists: next }, 'checklist_deleted', 'removeu checklist')
     setChecklistDraftItems((prev) => {
       if (!(checklistId in prev)) {
         return prev
@@ -807,7 +820,7 @@ export default function CardModal({
 
   const renameChecklist = (checklistId: string, title: string) => {
     const next = cardState.checklists.map((item) => (item.id === checklistId ? { ...item, title } : item))
-    updateCard({ checklists: next }, `renomeou checklist para ${title}`)
+    updateCardWithActivity({ checklists: next }, 'checklist_renamed', `renomeou checklist para ${title}`)
   }
 
   const removeChecklistItem = (checklistId: string, itemId: string) => {
@@ -816,12 +829,8 @@ export default function CardModal({
       return
     }
 
-    const target = checklist.items.find((item) => item.id === itemId)
     const nextItems = checklist.items.filter((item) => item.id !== itemId)
     updateChecklist(checklistId, { items: nextItems })
-    if (target) {
-      appendActivity(`removeu item do checklist: ${target.content}`)
-    }
   }
 
   const submitLink = () => {
@@ -840,10 +849,10 @@ export default function CardModal({
 
     if (linkDraft.id) {
       const next = cardState.links.map((link) => (link.id === linkDraft.id ? { ...link, title, url, type: linkDraft.type } : link))
-      updateCard({ links: next }, `editou link ${title}`)
+      updateCardWithActivity({ links: next }, 'link_updated', `editou link ${title}`)
     } else {
       const nextLink: LinkAttachment = { id: createId('link'), title, url, type: linkDraft.type, createdAt: new Date().toISOString() }
-      updateCard({ links: [...cardState.links, nextLink] }, `adicionou link ${title}`)
+      updateCardWithActivity({ links: [...cardState.links, nextLink] }, 'link_added', `adicionou link ${title}`)
     }
 
     setLinkDraft({ title: '', url: '', type: 'other' })
@@ -875,30 +884,18 @@ export default function CardModal({
   const removeLink = (id: string) => {
     const target = cardState.links.find((link) => link.id === id)
     const next = cardState.links.filter((link) => link.id !== id)
-    updateCard({ links: next }, target ? `removeu link ${target.title}` : 'removeu link')
+    updateCardWithActivity({ links: next }, 'link_removed', target ? `removeu link ${target.title}` : 'removeu link')
     setOpenedLinkMenuId(null)
     setAttachmentMenu(null)
   }
 
   const saveComment = () => {
     const text = commentText.trim()
-    if (!text || !actor) {
+    if (!text) {
       return
     }
 
-    const activity: Activity = {
-      id: createId('activity'),
-      type: 'comment',
-      actorId: actor.id,
-      actorName: actor.name,
-      actorInitials: actor.initials,
-      message: text,
-      createdAt: new Date().toISOString()
-    }
-
-    const next = [activity, ...cardState.activities]
-    setCardState((prev) => ({ ...prev, activities: next }))
-    onUpdate({ activities: next })
+    recordActivity('comment_added', text, { activityType: 'comment' })
     setCommentText('')
   }
 
@@ -963,7 +960,7 @@ export default function CardModal({
             <div className="flex items-start gap-2">
               <button
                 type="button"
-                onClick={() => updateCard({ isCompleted: !cardState.isCompleted }, cardState.isCompleted ? 'marcou como pendente' : 'marcou como conclu\u00eddo')}
+                onClick={() => updateCard({ isCompleted: !cardState.isCompleted })}
                 className="mt-1 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 aria-label={cardState.isCompleted ? 'Marcar como pendente' : 'Marcar como conclu\u00eddo'}
               >
@@ -1080,7 +1077,7 @@ export default function CardModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateCard({ isCompleted: !cardState.isCompleted }, cardState.isCompleted ? 'marcou como pendente' : 'marcou como conclu\u00eddo')}
+                  onClick={() => updateCard({ isCompleted: !cardState.isCompleted })}
                   className="rounded-[6px] border border-[#525252] px-3 py-2 text-left text-[13px] font-semibold text-[#d1d1d1] hover:bg-[#3a3b3f]"
                 >
                   {cardState.isCompleted ? 'Marcar pendente' : 'Marcar conclu\u00eddo'}
