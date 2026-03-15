@@ -124,6 +124,15 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     setCreateBoardSignal((prev) => prev + 1)
   }
 
+  const handleLogout = useCallback(() => {
+    setUrlState({ kind: 'root' })
+    setFallbackBoardId('')
+    setOpenCardRequest(null)
+    setCloseCardModalSignal((prev) => prev + 1)
+    updateHistory('/', true)
+    onLogout?.()
+  }, [onLogout])
+
   const navigateToBoard = useCallback((boardId: string, options?: { cardId?: string | null; token?: string | null; replace?: boolean }) => {
     const nextState: UrlState = {
       kind: 'board',
@@ -265,7 +274,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       <div className="lg:col-span-2">
         <Header
           userEmail={userEmail}
-          onLogout={onLogout}
+          onLogout={onLogout ? handleLogout : undefined}
           isLogoutLoading={isLogoutLoading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}

@@ -83,6 +83,7 @@ const BOARD_COLOR_OPTIONS = [
   '#ec4899'
 ]
 const REALTIME_RELOAD_DEBOUNCE_MS = 250
+const MUTATION_ERROR_RESET_MS = 6000
 
 const EMPTY_STORE: BoardStore = {
   version: 3,
@@ -96,6 +97,52 @@ const EMPTY_STORE: BoardStore = {
   members: [],
   currentBoardId: '',
   currentMemberId: ''
+}
+
+function getBoardColumns(snapshot: BoardStore, boardId: string): ColumnData[] {
+  return snapshot.columns
+    .filter((column) => column.boardId === boardId)
+    .sort((a, b) => a.position - b.position)
+}
+
+function getBoardCards(snapshot: BoardStore, boardColumns: ColumnData[]): CardData[] {
+  const boardListIds = new Set(boardColumns.map((column) => column.id))
+  return snapshot.cards.filter((card) => boardListIds.has(card.listId))
+}
+
+function hasCardLayoutChanged(previousCards: CardData[], nextCards: CardData[]): boolean {
+  if (previousCards.length !== nextCards.length) {
+    return true
+  }
+
+  for (let index = 0; index < previousCards.length; index += 1) {
+    const previousCard = previousCards[index]
+    const nextCard = nextCards[index]
+
+    if (!nextCard) {
+      return true
+    }
+
+    if (previousCard.id !== nextCard.id || previousCard.listId !== nextCard.listId) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function hasColumnsOrderChanged(previousColumns: ColumnData[], nextColumns: ColumnData[]): boolean {
+  if (previousColumns.length !== nextColumns.length) {
+    return true
+  }
+
+  for (let index = 0; index < previousColumns.length; index += 1) {
+    if (previousColumns[index]?.id !== nextColumns[index]?.id) {
+      return true
+    }
+  }
+
+  return false
 }
 
 export default function Board({
@@ -113,6 +160,7 @@ export default function Board({
   const [store, setStore] = useState<BoardStore>(EMPTY_STORE)
   const [isLoadingStore, setIsLoadingStore] = useState(true)
   const [storeError, setStoreError] = useState<string | null>(null)
+  const [operationError, setOperationError] = useState<string | null>(null)
   const [isAddingList, setIsAddingList] = useState(false)
   const [newListTitle, setNewListTitle] = useState('')
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
@@ -123,6 +171,36 @@ export default function Board({
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
   const realtimeReloadTimer = useRef<number | null>(null)
+  const operationErrorTimerRef = useRef<number | null>(null)
+  const storeRef = useRef<BoardStore>(EMPTY_STORE)
+  const dragSnapshotRef = useRef<{ cards: CardData[]; columns: ColumnData[] } | null>(null)
+
+  const applyStore = useCallback((nextStore: BoardStore) => {
+    storeRef.current = nextStore
+    setStore(nextStore)
+  }, [])
+
+  useEffect(() => {
+    storeRef.current = store
+  }, [store])
+
+  useEffect(() => {
+    return () => {
+      if (operationErrorTimerRef.current) {
+        window.clearTimeout(operationErrorTimerRef.current)
+      }
+    }
+  }, [])
+
+  const showOperationError = useCallback((message: string) => {
+    setOperationError(message)
+    if (operationErrorTimerRef.current) {
+      window.clearTimeout(operationErrorTimerRef.current)
+    }
+    operationErrorTimerRef.current = window.setTimeout(() => {
+      setOperationError(null)
+    }, MUTATION_ERROR_RESET_MS)
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -138,7 +216,7 @@ export default function Board({
       setStoreError(null)
       try {
         const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, options)
-        setStore(nextStore)
+        applyStore(nextStore)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
         setStoreError(message)
@@ -146,7 +224,7 @@ export default function Board({
         setIsLoadingStore(false)
       }
     },
-    [selectedBoardId]
+    [applyStore, selectedBoardId]
   )
 
   useEffect(() => {
@@ -161,6 +239,16 @@ export default function Board({
 
     return store.currentBoardId
   }, [selectedBoardId, store.boards, store.currentBoardId])
+
+  const handleRemoteError = useCallback(
+    (action: string, error: unknown, boardIdOverride?: string) => {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel salvar as alteracoes.'
+      console.error(`[board:${action}]`, error)
+      showOperationError(message)
+      void loadStore(boardIdOverride ?? activeBoardId, { forceRefresh: true })
+    },
+    [activeBoardId, loadStore, showOperationError]
+  )
 
   const isCreateBoardOpen = createBoardSignal > dismissedCreateSignal
   const isShareBoardOpen = shareBoardSignal > dismissedShareSignal
@@ -318,11 +406,11 @@ export default function Board({
         message: normalizedMessage,
         activityType: options?.activityType,
         dedupeWindowMinutes: options?.dedupeWindowMinutes
-      }).catch(() => {
-        void loadStore(activeBoardId)
+      }).catch((error) => {
+        handleRemoteError('record_activity', error, activeBoardId)
       })
     },
-    [activeBoardId, loadStore]
+    [activeBoardId, handleRemoteError]
   )
 
   const handleRecordCardActivity = useCallback(
@@ -344,89 +432,85 @@ export default function Board({
       }
     }
 
+    const snapshot = storeRef.current
+    const actor = snapshot.members.find((member) => member.id === snapshot.currentMemberId)
+    const nowIso = new Date().toISOString()
     let cardToPersist: CardData | null = null
     let notificationsToPersist: MemberNotification[] = []
+    let nextNotifications = snapshot.notifications
 
-    setStore((prev) => {
-      const actor = prev.members.find((member) => member.id === prev.currentMemberId)
-      const nowIso = new Date().toISOString()
-      let nextNotifications = prev.notifications
+    const nextCards = snapshot.cards.map((card) => {
+      if (card.id !== cardId) {
+        return card
+      }
 
-      const nextCards = prev.cards.map((card) => {
-        if (card.id !== cardId) {
-          return card
-        }
+      const nextCard: CardData = {
+        ...card,
+        ...updates,
+        updatedAt: nowIso
+      }
+      cardToPersist = nextCard
 
-        const nextCard: CardData = {
-          ...card,
-          ...updates,
-          updatedAt: nowIso
-        }
+      if (actor && Array.isArray(updates.memberIds)) {
+        const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
+        if (addedMemberIds.length > 0) {
+          const memberNotifications = addedMemberIds
+            .filter((memberId) => memberId !== actor.id)
+            .map((memberId) => {
+              const targetMember = snapshot.members.find((member) => member.id === memberId)
+              if (!targetMember) {
+                return null
+              }
 
-        if (!actor) {
-          cardToPersist = nextCard
-          return nextCard
-        }
+              return {
+                id: createId('notif'),
+                memberId: targetMember.id,
+                boardId: activeBoardId,
+                cardId: card.id,
+                type: 'member_assigned' as const,
+                title: 'VocÃª foi adicionado em um cartÃ£o',
+                message: `${actor.name} adicionou vocÃª em "${card.title}".`,
+                createdAt: nowIso,
+                isRead: false
+              }
+            })
+            .filter((item): item is MemberNotification => item !== null)
 
-        if (Array.isArray(updates.memberIds)) {
-          const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
-          if (addedMemberIds.length > 0) {
-            const memberNotifications = addedMemberIds
-              .filter((memberId) => memberId !== actor.id)
-              .map((memberId) => {
-                const targetMember = prev.members.find((member) => member.id === memberId)
-                if (!targetMember) {
-                  return null
-                }
-
-                return {
-                  id: createId('notif'),
-                  memberId: targetMember.id,
-                  boardId: activeBoardId,
-                  cardId: card.id,
-                  type: 'member_assigned' as const,
-                  title: 'VocÃª foi adicionado em um cartÃ£o',
-                  message: `${actor.name} adicionou vocÃª em "${card.title}".`,
-                  createdAt: nowIso,
-                  isRead: false
-                }
-              })
-              .filter((item): item is MemberNotification => item !== null)
-
-            if (memberNotifications.length > 0) {
-              nextNotifications = [...prev.notifications, ...memberNotifications]
-              notificationsToPersist = memberNotifications
-            }
+          if (memberNotifications.length > 0) {
+            notificationsToPersist = memberNotifications
+            nextNotifications = [...snapshot.notifications, ...memberNotifications]
           }
         }
-
-        cardToPersist = nextCard
-        return nextCard
-      })
-
-      return {
-        ...prev,
-        notifications: nextNotifications,
-        cards: nextCards
       }
+
+      return nextCard
+    })
+
+    applyStore({
+      ...snapshot,
+      cards: nextCards,
+      notifications: nextNotifications
     })
 
     if (cardToPersist) {
-      void upsertCardRemote(activeBoardId, cardToPersist).catch(() => {
-        void loadStore(activeBoardId)
+      void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
+        handleRemoteError('upsert_card', error, activeBoardId)
       })
     }
 
     if (notificationsToPersist.length > 0) {
-      void insertNotificationsRemote(notificationsToPersist).catch(() => {
-        void loadStore(activeBoardId)
+      void insertNotificationsRemote(notificationsToPersist).catch((error) => {
+        handleRemoteError('insert_notifications', error, activeBoardId)
       })
     }
   }
 
   const addCardToList = (listId: string, title: string, placement: 'top' | 'bottom') => {
     const nowIso = new Date().toISOString()
-    const createdListTitle = currentColumns.find((column) => column.id === listId)?.title ?? 'Lista'
+    const snapshot = storeRef.current
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardListIds = new Set(boardColumns.map((column) => column.id))
+    const createdListTitle = boardColumns.find((column) => column.id === listId)?.title ?? 'Lista'
     const createdCard: CardData = {
       id: createId('card'),
       listId,
@@ -442,91 +526,78 @@ export default function Board({
       updatedAt: nowIso
     }
 
-    let nextCardsPayload: CardData[] = []
-
-    setStore((prev) => {
-      if (placement === 'bottom') {
-        nextCardsPayload = [...prev.cards, createdCard]
-        return {
-          ...prev,
-          cards: nextCardsPayload
-        }
-      }
-
-      const insertIndex = prev.cards.findIndex((card) => card.listId === listId)
+    const nextCardsPayload = [...snapshot.cards]
+    if (placement === 'bottom') {
+      nextCardsPayload.push(createdCard)
+    } else {
+      const insertIndex = snapshot.cards.findIndex((card) => card.listId === listId)
       if (insertIndex === -1) {
-        nextCardsPayload = [...prev.cards, createdCard]
-        return {
-          ...prev,
-          cards: nextCardsPayload
-        }
+        nextCardsPayload.push(createdCard)
+      } else {
+        nextCardsPayload.splice(insertIndex, 0, createdCard)
       }
+    }
 
-      const nextCards = [...prev.cards]
-      nextCards.splice(insertIndex, 0, createdCard)
-      nextCardsPayload = nextCards
-
-      return {
-        ...prev,
-        cards: nextCards
-      }
+    applyStore({
+      ...snapshot,
+      cards: nextCardsPayload
     })
 
     void createCardRemote(activeBoardId, createdCard)
       .then(() => {
         recordActivity(createdCard.id, 'card_created', `adicionou este cartÃ£o a ${createdListTitle}.`)
       })
-      .catch(() => {
-        void loadStore(activeBoardId)
+      .catch((error) => {
+        handleRemoteError('create_card', error, activeBoardId)
       })
 
-    if (nextCardsPayload.length > 0) {
-      void syncCardsOrderingRemote(activeBoardId, currentColumns, nextCardsPayload).catch(() => {
-        void loadStore(activeBoardId)
-      })
-    }
+    const boardCardsToSync = nextCardsPayload.filter((card) => boardListIds.has(card.listId))
+    void syncCardsOrderingRemote(activeBoardId, boardColumns, boardCardsToSync).catch((error) => {
+      handleRemoteError('sync_cards_ordering_after_create', error, activeBoardId)
+    })
   }
 
   const deleteCard = (cardId: string) => {
-    setStore((prev) => ({
-      ...prev,
-      cards: prev.cards.filter((card) => card.id !== cardId)
-    }))
-    void deleteCardRemote(cardId).catch(() => {
-      void loadStore(activeBoardId)
+    const snapshot = storeRef.current
+    applyStore({
+      ...snapshot,
+      cards: snapshot.cards.filter((card) => card.id !== cardId)
+    })
+    void deleteCardRemote(cardId).catch((error) => {
+      handleRemoteError('delete_card', error, activeBoardId)
     })
   }
 
   const archiveCard = (cardId: string) => {
-    setStore((prev) => {
-      const card = prev.cards.find((item) => item.id === cardId)
-      if (!card) {
-        return prev
-      }
+    const snapshot = storeRef.current
+    const card = snapshot.cards.find((item) => item.id === cardId)
+    if (!card) {
+      return
+    }
 
-      const list = prev.columns.find((column) => column.id === card.listId)
-      const board = prev.boards.find((item) => item.id === activeBoardId)
+    const list = snapshot.columns.find((column) => column.id === card.listId)
+    const board = snapshot.boards.find((item) => item.id === activeBoardId)
 
-      return {
-        ...prev,
-        cards: prev.cards.filter((item) => item.id !== cardId),
-        archivedCards: [
-          {
-            id: card.id,
-            boardId: activeBoardId,
-            boardTitle: board?.title ?? 'Board',
-            listId: card.listId,
-            listTitle: list?.title ?? 'Lista',
-            title: card.title,
-            labels: card.labels,
-            archivedAt: new Date().toISOString()
-          },
-          ...prev.archivedCards
-        ]
-      }
+    applyStore({
+      ...snapshot,
+      cards: snapshot.cards.filter((item) => item.id !== cardId),
+      archivedCards: [
+        {
+          id: card.id,
+          boardId: activeBoardId,
+          boardTitle: board?.title ?? 'Board',
+          listId: card.listId,
+          listTitle: list?.title ?? 'Lista',
+          title: card.title,
+          labels: card.labels,
+          archivedAt: new Date().toISOString()
+        },
+        ...snapshot.archivedCards
+      ]
     })
-    void archiveCardRemote(cardId).catch(() => {
-      void loadStore(activeBoardId)
+
+    void archiveCardRemote(cardId).catch((error) => {
+      handleRemoteError('archive_card', error, activeBoardId)
     })
   }
 
@@ -536,31 +607,23 @@ export default function Board({
       return
     }
 
-    let createdList: ColumnData | null = null
-    setStore((prev) => {
-      const boardColumns = prev.columns.filter((column) => column.boardId === activeBoardId)
-      const nextPosition = boardColumns.length
-      createdList = {
-        id: createId('list'),
-        boardId: activeBoardId,
-        title,
-        position: nextPosition
-      }
+    const snapshot = storeRef.current
+    const nextPosition = snapshot.columns.filter((column) => column.boardId === activeBoardId).length
+    const createdList: ColumnData = {
+      id: createId('list'),
+      boardId: activeBoardId,
+      title,
+      position: nextPosition
+    }
 
-      return {
-        ...prev,
-        columns: [
-          ...prev.columns,
-          createdList
-        ]
-      }
+    applyStore({
+      ...snapshot,
+      columns: [...snapshot.columns, createdList]
     })
 
-    if (createdList) {
-      void createListRemote(createdList).catch(() => {
-        void loadStore(activeBoardId)
-      })
-    }
+    void createListRemote(createdList).catch((error) => {
+      handleRemoteError('create_list', error, activeBoardId)
+    })
 
     setNewListTitle('')
     setIsAddingList(false)
@@ -572,58 +635,60 @@ export default function Board({
       return
     }
 
-    setStore((prev) => ({
-      ...prev,
-      columns: prev.columns.map((column) => (column.id === columnId ? { ...column, title: normalizedTitle } : column))
-    }))
-    void updateListRemote(columnId, { title: normalizedTitle }).catch(() => {
-      void loadStore(activeBoardId)
+    const snapshot = storeRef.current
+    applyStore({
+      ...snapshot,
+      columns: snapshot.columns.map((column) => (column.id === columnId ? { ...column, title: normalizedTitle } : column))
+    })
+    void updateListRemote(columnId, { title: normalizedTitle }).catch((error) => {
+      handleRemoteError('rename_list', error, activeBoardId)
     })
   }
 
   const deleteColumn = (columnId: string) => {
-    setStore((prev) => {
-      const remainingColumns = prev.columns.filter((column) => column.id !== columnId)
-      const normalizedColumns = remainingColumns.map((column) => {
-        if (column.boardId !== activeBoardId) {
-          return column
-        }
-
-        const position = remainingColumns
-          .filter((item) => item.boardId === activeBoardId)
-          .sort((a, b) => a.position - b.position)
-          .findIndex((item) => item.id === column.id)
-
-        return { ...column, position }
-      })
-
-      return {
-        ...prev,
-        columns: normalizedColumns,
-        cards: prev.cards.filter((card) => card.listId !== columnId)
+    const snapshot = storeRef.current
+    const remainingColumns = snapshot.columns.filter((column) => column.id !== columnId)
+    const normalizedColumns = remainingColumns.map((column) => {
+      if (column.boardId !== activeBoardId) {
+        return column
       }
+
+      const position = remainingColumns
+        .filter((item) => item.boardId === activeBoardId)
+        .sort((a, b) => a.position - b.position)
+        .findIndex((item) => item.id === column.id)
+
+      return { ...column, position }
     })
-    void deleteListRemote(columnId).catch(() => {
-      void loadStore(activeBoardId)
+
+    applyStore({
+      ...snapshot,
+      columns: normalizedColumns,
+      cards: snapshot.cards.filter((card) => card.listId !== columnId)
+    })
+    void deleteListRemote(columnId).catch((error) => {
+      handleRemoteError('delete_list', error, activeBoardId)
     })
   }
 
   const updateAvailableLabels = (labels: Label[]) => {
-    setStore((prev) => ({
-      ...prev,
+    const snapshot = storeRef.current
+    applyStore({
+      ...snapshot,
       labelsByBoard: {
-        ...prev.labelsByBoard,
+        ...snapshot.labelsByBoard,
         [activeBoardId]: labels
       }
-    }))
-    void replaceBoardLabelsRemote(activeBoardId, labels).catch(() => {
-      void loadStore(activeBoardId)
+    })
+    void replaceBoardLabelsRemote(activeBoardId, labels).catch((error) => {
+      handleRemoteError('replace_labels', error, activeBoardId)
     })
   }
 
   const updateShareSettings = (nextSettings: BoardShareSettings) => {
-    const existingShare = store.shareByBoard[activeBoardId]
-    const boardOwnerId = currentBoard?.ownerMemberId ?? store.currentMemberId
+    const snapshot = storeRef.current
+    const existingShare = snapshot.shareByBoard[activeBoardId]
+    const boardOwnerId = snapshot.boards.find((board) => board.id === activeBoardId)?.ownerMemberId ?? snapshot.currentMemberId
     const ownerShareEntry = existingShare?.members.find((member) => member.memberId === boardOwnerId)
     const memberMap = new Map(nextSettings.members.map((member) => [member.memberId, member]))
     if (!memberMap.has(boardOwnerId)) {
@@ -636,9 +701,11 @@ export default function Board({
     }
     const validMemberIdSet = new Set(normalizedSettings.members.map((member) => member.memberId))
 
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardListIds = new Set(boardColumns.map((column) => column.id))
     const cardsToPersistMap = new Map<string, CardData>()
-    store.cards.forEach((card) => {
-      if (!currentBoardCardListIds.has(card.listId)) {
+    snapshot.cards.forEach((card) => {
+      if (!boardListIds.has(card.listId)) {
         return
       }
       const filteredMemberIds = card.memberIds.filter((memberId) => validMemberIdSet.has(memberId))
@@ -654,34 +721,35 @@ export default function Board({
 
     const cardsToPersist = Array.from(cardsToPersistMap.values())
 
-    setStore((prev) => ({
-      ...prev,
+    applyStore({
+      ...snapshot,
       shareByBoard: {
-        ...prev.shareByBoard,
+        ...snapshot.shareByBoard,
         [activeBoardId]: normalizedSettings
       },
-      cards: prev.cards.map((card) => cardsToPersistMap.get(card.id) ?? card)
-    }))
+      cards: snapshot.cards.map((card) => cardsToPersistMap.get(card.id) ?? card)
+    })
 
-    void replaceBoardShareSettingsRemote(activeBoardId, boardOwnerId, normalizedSettings).catch(() => {
-      void loadStore(activeBoardId)
+    void replaceBoardShareSettingsRemote(activeBoardId, boardOwnerId, normalizedSettings).catch((error) => {
+      handleRemoteError('replace_share_settings', error, activeBoardId)
     })
 
     cardsToPersist.forEach((card) => {
-      void upsertCardRemote(activeBoardId, card).catch(() => {
-        void loadStore(activeBoardId)
+      void upsertCardRemote(activeBoardId, card).catch((error) => {
+        handleRemoteError('upsert_card_after_share', error, activeBoardId)
       })
     })
   }
 
   const inviteMemberByEmail = (email: string, permission: 'view' | 'edit'): { ok: boolean; message?: string } => {
+    const snapshot = storeRef.current
     const normalizedEmail = email.trim().toLowerCase()
-    const boardShare = store.shareByBoard[activeBoardId]
+    const boardShare = snapshot.shareByBoard[activeBoardId]
     if (!boardShare) {
       return { ok: false, message: 'Board sem configuracao de compartilhamento.' }
     }
 
-    const existingMember = store.members.find((member) => member.email.toLowerCase() === normalizedEmail)
+    const existingMember = snapshot.members.find((member) => member.email.toLowerCase() === normalizedEmail)
     if (!existingMember) {
       return { ok: false, message: 'Este usuario ainda nao acessou o sistema.' }
     }
@@ -701,6 +769,14 @@ export default function Board({
   }
 
   const onDragStart = (event: DragStartEvent) => {
+    const snapshot = storeRef.current
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardCards = getBoardCards(snapshot, boardColumns)
+    dragSnapshotRef.current = {
+      cards: boardCards.map((card) => ({ ...card })),
+      columns: boardColumns.map((column) => ({ ...column }))
+    }
+
     if (event.active.data.current?.type === 'Column') {
       setActiveColumnId(String(event.active.id))
       return
@@ -717,6 +793,9 @@ export default function Board({
       return
     }
 
+    const snapshot = storeRef.current
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardListIds = new Set(boardColumns.map((column) => column.id))
     const activeId = String(active.id)
     const overId = String(over.id)
 
@@ -733,73 +812,69 @@ export default function Board({
     const overIsColumn = over.data.current?.type === 'Column'
 
     if (overIsCard) {
-      setStore((prev) => {
-        const activeIndex = prev.cards.findIndex((card) => card.id === activeId)
-        const overIndex = prev.cards.findIndex((card) => card.id === overId)
+      const activeIndex = snapshot.cards.findIndex((card) => card.id === activeId)
+      const overIndex = snapshot.cards.findIndex((card) => card.id === overId)
 
-        if (activeIndex === -1 || overIndex === -1) {
-          return prev
-        }
+      if (activeIndex === -1 || overIndex === -1) {
+        return
+      }
 
-        const activeCardValue = prev.cards[activeIndex]
-        const overCardValue = prev.cards[overIndex]
+      const activeCardValue = snapshot.cards[activeIndex]
+      const overCardValue = snapshot.cards[overIndex]
 
-        if (!currentBoardCardListIds.has(activeCardValue.listId) || !currentBoardCardListIds.has(overCardValue.listId)) {
-          return prev
-        }
+      if (!boardListIds.has(activeCardValue.listId) || !boardListIds.has(overCardValue.listId)) {
+        return
+      }
 
-        const draft = [...prev.cards]
-        draft[activeIndex] = {
-          ...draft[activeIndex],
-          listId: overCardValue.listId,
-          updatedAt: new Date().toISOString()
-        }
+      const draft = [...snapshot.cards]
+      draft[activeIndex] = {
+        ...draft[activeIndex],
+        listId: overCardValue.listId,
+        updatedAt: new Date().toISOString()
+      }
 
-        return {
-          ...prev,
-          cards: arrayMove(draft, activeIndex, overIndex)
-        }
+      applyStore({
+        ...snapshot,
+        cards: arrayMove(draft, activeIndex, overIndex)
       })
     }
 
     if (overIsColumn) {
-      setStore((prev) => {
-        const activeIndex = prev.cards.findIndex((card) => card.id === activeId)
-        if (activeIndex === -1) {
-          return prev
+      const activeIndex = snapshot.cards.findIndex((card) => card.id === activeId)
+      if (activeIndex === -1) {
+        return
+      }
+
+      const activeCardValue = snapshot.cards[activeIndex]
+      if (!boardListIds.has(activeCardValue.listId) || !boardListIds.has(overId)) {
+        return
+      }
+
+      if (activeCardValue.listId === overId) {
+        return
+      }
+
+      const draft = [...snapshot.cards]
+      const [card] = draft.splice(activeIndex, 1)
+      const updatedCard: CardData = {
+        ...card,
+        listId: overId,
+        updatedAt: new Date().toISOString()
+      }
+
+      const targetListLastIndex = draft.reduce((lastIndex, currentCard, index) => {
+        if (currentCard.listId === overId) {
+          return index
         }
+        return lastIndex
+      }, -1)
 
-        const activeCardValue = prev.cards[activeIndex]
-        if (!currentBoardCardListIds.has(activeCardValue.listId) || !currentBoardCardListIds.has(overId)) {
-          return prev
-        }
+      const insertIndex = targetListLastIndex === -1 ? draft.length : targetListLastIndex + 1
+      draft.splice(insertIndex, 0, updatedCard)
 
-        if (activeCardValue.listId === overId) {
-          return prev
-        }
-
-        const draft = [...prev.cards]
-        const [card] = draft.splice(activeIndex, 1)
-        const updatedCard: CardData = {
-          ...card,
-          listId: overId,
-          updatedAt: new Date().toISOString()
-        }
-
-        const targetListLastIndex = draft.reduce((lastIndex, currentCard, index) => {
-          if (currentCard.listId === overId) {
-            return index
-          }
-          return lastIndex
-        }, -1)
-
-        const insertIndex = targetListLastIndex === -1 ? draft.length : targetListLastIndex + 1
-        draft.splice(insertIndex, 0, updatedCard)
-
-        return {
-          ...prev,
-          cards: draft
-        }
+      applyStore({
+        ...snapshot,
+        cards: draft
       })
     }
   }
@@ -808,67 +883,58 @@ export default function Board({
     setActiveCardId(null)
     setActiveColumnId(null)
 
+    const dragSnapshot = dragSnapshotRef.current
+    dragSnapshotRef.current = null
+
     const { active, over } = event
     if (!over) {
-      return
-    }
-
-    if (active.id === over.id) {
+      if (dragSnapshot) {
+        void loadStore(activeBoardId, { forceRefresh: true })
+      }
       return
     }
 
     const isActiveCard = active.data.current?.type === 'Card'
     if (isActiveCard) {
+      const snapshot = storeRef.current
+      const boardColumns = getBoardColumns(snapshot, activeBoardId)
+      const boardCards = getBoardCards(snapshot, boardColumns)
       const activeCardId = String(active.id)
-      const overType = over.data.current?.type
-      const targetListId =
-        overType === 'Card'
-          ? String((over.data.current?.card as CardData | undefined)?.listId ?? over.id)
-          : String(over.id)
-
-      const sourceListId = (active.data.current?.card as CardData | undefined)?.listId
-      const movedAcrossLists = Boolean(sourceListId && sourceListId !== targetListId)
-      const targetListTitle = currentColumns.find((column) => column.id === targetListId)?.title ?? 'Lista'
-
-      let cardsToSyncPayload: CardData[] = []
-      let shouldRecordMoveActivity = false
-
-      setStore((prev) => {
-        const nowIso = new Date().toISOString()
-        const nextCards = prev.cards.map((card) => {
-          if (card.id !== activeCardId) {
-            return card
-          }
-
-          const baseCard: CardData = {
-            ...card,
-            listId: targetListId,
-            updatedAt: nowIso
-          }
-
-          shouldRecordMoveActivity = movedAcrossLists
-          return baseCard
-        })
-
-        cardsToSyncPayload = nextCards.filter((card) => currentBoardCardListIds.has(card.listId))
-        return {
-          ...prev,
-          cards: nextCards
-        }
-      })
-
-      const movedCardToPersist = cardsToSyncPayload.find((card) => card.id === activeCardId)
-      if (movedCardToPersist) {
-        void upsertCardRemote(activeBoardId, movedCardToPersist).catch(() => {
-          void loadStore(activeBoardId)
-        })
-        if (shouldRecordMoveActivity) {
-          recordActivity(movedCardToPersist.id, 'card_moved', `moveu o cartÃ£o para ${targetListTitle}.`, { dedupeWindowMinutes: 10 })
-        }
+      const movedCardCurrent = boardCards.find((card) => card.id === activeCardId)
+      if (!movedCardCurrent) {
+        return
       }
 
-      void syncCardsOrderingRemote(activeBoardId, currentColumns, cardsToSyncPayload.length > 0 ? cardsToSyncPayload : store.cards).catch(() => {
-        void loadStore(activeBoardId)
+      const previousCard = dragSnapshot?.cards.find((card) => card.id === activeCardId)
+      const movedAcrossLists = Boolean(previousCard && previousCard.listId !== movedCardCurrent.listId)
+      const layoutChanged = dragSnapshot ? hasCardLayoutChanged(dragSnapshot.cards, boardCards) : true
+
+      if (!layoutChanged && !movedAcrossLists) {
+        return
+      }
+
+      let cardToPersist = movedCardCurrent
+      if (movedAcrossLists) {
+        cardToPersist = {
+          ...movedCardCurrent,
+          updatedAt: new Date().toISOString()
+        }
+
+        applyStore({
+          ...snapshot,
+          cards: snapshot.cards.map((card) => (card.id === cardToPersist.id ? cardToPersist : card))
+        })
+
+        const targetListTitle = boardColumns.find((column) => column.id === cardToPersist.listId)?.title ?? 'Lista'
+        void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
+          handleRemoteError('move_card_upsert', error, activeBoardId)
+        })
+        recordActivity(cardToPersist.id, 'card_moved', `moveu o cartÃ£o para ${targetListTitle}.`, { dedupeWindowMinutes: 10 })
+      }
+
+      const cardsToSyncPayload = boardCards.map((card) => (card.id === cardToPersist.id ? cardToPersist : card))
+      void syncCardsOrderingRemote(activeBoardId, boardColumns, cardsToSyncPayload).catch((error) => {
+        handleRemoteError('sync_cards_ordering', error, activeBoardId)
       })
       return
     }
@@ -878,6 +944,11 @@ export default function Board({
       return
     }
 
+    if (active.id === over.id) {
+      return
+    }
+
+    const snapshot = storeRef.current
     const activeId = String(active.id)
     const overType = over.data.current?.type
     const overId =
@@ -885,37 +956,32 @@ export default function Board({
         ? String((over.data.current?.card as CardData | undefined)?.listId ?? over.id)
         : String(over.id)
 
-    let movedColumnsPayload: ColumnData[] = []
-    setStore((prev) => {
-      const boardColumns = prev.columns
-        .filter((column) => column.boardId === activeBoardId)
-        .sort((a, b) => a.position - b.position)
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const activeIndex = boardColumns.findIndex((column) => column.id === activeId)
+    const overIndex = boardColumns.findIndex((column) => column.id === overId)
 
-      const activeIndex = boardColumns.findIndex((column) => column.id === activeId)
-      const overIndex = boardColumns.findIndex((column) => column.id === overId)
-
-      if (activeIndex === -1 || overIndex === -1) {
-        return prev
-      }
-
-      const movedColumns = arrayMove(boardColumns, activeIndex, overIndex).map((column, index) => ({
-        ...column,
-        position: index
-      }))
-      movedColumnsPayload = movedColumns
-
-      const otherColumns = prev.columns.filter((column) => column.boardId !== activeBoardId)
-
-      return {
-        ...prev,
-        columns: [...otherColumns, ...movedColumns]
-      }
-    })
-    if (movedColumnsPayload.length > 0) {
-      void reorderListsRemote(movedColumnsPayload).catch(() => {
-        void loadStore(activeBoardId)
-      })
+    if (activeIndex === -1 || overIndex === -1) {
+      return
     }
+
+    const movedColumns = arrayMove(boardColumns, activeIndex, overIndex).map((column, index) => ({
+      ...column,
+      position: index
+    }))
+
+    if (!hasColumnsOrderChanged(boardColumns, movedColumns)) {
+      return
+    }
+
+    const otherColumns = snapshot.columns.filter((column) => column.boardId !== activeBoardId)
+    applyStore({
+      ...snapshot,
+      columns: [...otherColumns, ...movedColumns]
+    })
+
+    void reorderListsRemote(movedColumns).catch((error) => {
+      handleRemoteError('reorder_lists', error, activeBoardId)
+    })
   }
 
   const createBoard = () => {
@@ -924,46 +990,47 @@ export default function Board({
       return
     }
 
+    const snapshot = storeRef.current
     const now = new Date().toISOString()
     const boardId = createId('board')
     const linkToken = createId('share').replace('share_', '')
 
     const nextBoards = [
-      ...store.boards,
+      ...snapshot.boards,
       {
         id: boardId,
         title,
         color: newBoardColor,
-        ownerMemberId: store.currentMemberId,
+        ownerMemberId: snapshot.currentMemberId,
         createdAt: now,
         updatedAt: now
       }
     ]
 
-    setStore((prev) => ({
-      ...prev,
+    applyStore({
+      ...snapshot,
       boards: nextBoards,
       labelsByBoard: {
-        ...prev.labelsByBoard,
+        ...snapshot.labelsByBoard,
         [boardId]: []
       },
       shareByBoard: {
-        ...prev.shareByBoard,
+        ...snapshot.shareByBoard,
         [boardId]: {
           boardId,
           linkToken,
           allowLinkAccess: true,
-          members: [{ memberId: prev.currentMemberId, permission: 'edit' }]
+          members: [{ memberId: snapshot.currentMemberId, permission: 'edit' }]
         }
       },
       currentBoardId: boardId
-    }))
+    })
     void createBoardRemote(
       {
         id: boardId,
         title,
         color: newBoardColor,
-        ownerMemberId: store.currentMemberId,
+        ownerMemberId: snapshot.currentMemberId,
         createdAt: now,
         updatedAt: now
       },
@@ -971,10 +1038,10 @@ export default function Board({
         boardId,
         linkToken,
         allowLinkAccess: true,
-        members: [{ memberId: store.currentMemberId, permission: 'edit' }]
+        members: [{ memberId: snapshot.currentMemberId, permission: 'edit' }]
       }
-    ).catch(() => {
-      void loadStore(boardId)
+    ).catch((error) => {
+      handleRemoteError('create_board', error, boardId)
     })
 
     setNewBoardTitle('')
@@ -1072,6 +1139,13 @@ export default function Board({
 
   return (
     <div className="h-full w-full">
+      {operationError && (
+        <div className="px-6 pt-3">
+          <div className="rounded-xl border border-[#820002] bg-[#820002]/20 px-3 py-2 text-sm text-[#ffb4ae]">
+            {operationError}
+          </div>
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}

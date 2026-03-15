@@ -55,6 +55,19 @@ function clearAuthHashFromUrl(): void {
   window.history.replaceState({}, document.title, cleanUrl)
 }
 
+function normalizeLoggedOutRoute(): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const isBoardRoute = window.location.pathname.startsWith("/boards/")
+  if (!isBoardRoute) {
+    return
+  }
+
+  window.history.replaceState({}, document.title, "/")
+}
+
 export function useAuthSession() {
   const initialRateLimitStatus = useMemo(() => defaultRateLimit, [])
   const [session, setSession] = useState<Session | null>(null)
@@ -78,6 +91,7 @@ export function useAuthSession() {
   const applySession = useCallback(
     async (nextSession: Session | null) => {
       if (!nextSession?.user) {
+        normalizeLoggedOutRoute()
         setSession(null)
         return
       }
@@ -185,6 +199,7 @@ export function useAuthSession() {
   const logout = useCallback(async () => {
     setActionLoading(true)
     await signOut()
+    normalizeLoggedOutRoute()
     setSession(null)
     setActionLoading(false)
   }, [])
