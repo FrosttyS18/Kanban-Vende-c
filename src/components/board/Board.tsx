@@ -827,7 +827,71 @@ export default function Board({
 
     const isActiveCard = active.data.current?.type === 'Card'
     if (isActiveCard) {
-      void syncCardsOrderingRemote(activeBoardId, currentColumns, store.cards).catch(() => {
+      const activeCardId = String(active.id)
+      const overType = over.data.current?.type
+      const targetListId =
+        overType === 'Card'
+          ? String((over.data.current?.card as CardData | undefined)?.listId ?? over.id)
+          : String(over.id)
+
+      const sourceListId = (active.data.current?.card as CardData | undefined)?.listId
+      const movedAcrossLists = Boolean(sourceListId && sourceListId !== targetListId)
+      const targetListTitle = currentColumns.find((column) => column.id === targetListId)?.title ?? 'Lista'
+
+      let cardsToSyncPayload: CardData[] = []
+      let movedCardToPersist: CardData | null = null
+
+      setStore((prev) => {
+        const actor = prev.members.find((member) => member.id === prev.currentMemberId)
+        const nowIso = new Date().toISOString()
+        const nextCards = prev.cards.map((card) => {
+          if (card.id !== activeCardId) {
+            return card
+          }
+
+          const baseCard: CardData = {
+            ...card,
+            listId: targetListId,
+            updatedAt: nowIso
+          }
+
+          if (!movedAcrossLists || !actor) {
+            movedCardToPersist = baseCard
+            return baseCard
+          }
+
+          const activity: Activity = {
+            id: createId('activity'),
+            type: 'system',
+            actorId: actor.id,
+            actorName: actor.name,
+            actorInitials: actor.initials,
+            message: `moveu o cartão para ${targetListTitle}.`,
+            createdAt: nowIso
+          }
+
+          const withActivity: CardData = {
+            ...baseCard,
+            activities: [activity, ...card.activities].slice(0, MAX_CARD_ACTIVITIES)
+          }
+          movedCardToPersist = withActivity
+          return withActivity
+        })
+
+        cardsToSyncPayload = nextCards.filter((card) => currentBoardCardListIds.has(card.listId))
+        return {
+          ...prev,
+          cards: nextCards
+        }
+      })
+
+      if (movedCardToPersist) {
+        void upsertCardRemote(activeBoardId, movedCardToPersist).catch(() => {
+          void loadStore(activeBoardId)
+        })
+      }
+
+      void syncCardsOrderingRemote(activeBoardId, currentColumns, cardsToSyncPayload.length > 0 ? cardsToSyncPayload : store.cards).catch(() => {
         void loadStore(activeBoardId)
       })
       return
@@ -1057,6 +1121,7 @@ export default function Board({
                   listOptions={listOptions}
                   boardMembers={sharedBoardMembers}
                   currentMemberId={store.currentMemberId}
+                  boardId={activeBoardId}
                   searchActive={searchQuery.trim().length > 0}
                 />
               ))}
@@ -1129,6 +1194,7 @@ export default function Board({
                 listOptions={listOptions}
                 boardMembers={sharedBoardMembers}
                 currentMemberId={store.currentMemberId}
+                boardId={activeBoardId}
                 isOverlay
               />
             )}
@@ -1141,6 +1207,7 @@ export default function Board({
                 onUpdateAvailableLabels={updateAvailableLabels}
                 boardMembers={sharedBoardMembers}
                 currentMemberId={store.currentMemberId}
+                boardId={activeBoardId}
                 onUpdate={updateCardInStore}
                 onDelete={deleteCard}
                 onArchive={archiveCard}

@@ -11,6 +11,22 @@ interface BoardPageProps {
   isLogoutLoading?: boolean
 }
 
+function getCardOpenRequestFromUrl(): { boardId: string; cardId: string; token: number } | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const params = new URLSearchParams(window.location.search)
+  const boardId = params.get('board')?.trim() ?? ''
+  const cardId = params.get('card')?.trim() ?? ''
+
+  if (!boardId || !cardId) {
+    return null
+  }
+
+  return { boardId, cardId, token: Date.now() }
+}
+
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
   const [shareJoinError, setShareJoinError] = useState<string | null>(null)
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(() => {
@@ -30,6 +46,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
+  const [pendingCardOpenRequest, setPendingCardOpenRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(() => getCardOpenRequestFromUrl())
 
   const triggerCreateBoard = () => {
     setCreateBoardSignal((prev) => prev + 1)
@@ -110,6 +127,25 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       cancelled = true
     }
   }, [pendingShareToken])
+
+  useEffect(() => {
+    if (!pendingCardOpenRequest) {
+      return
+    }
+
+    setActiveBoardId(pendingCardOpenRequest.boardId)
+    setOpenCardRequest(pendingCardOpenRequest)
+    setBoardReloadKey((prev) => prev + 1)
+
+    const params = new URLSearchParams(window.location.search)
+    params.delete('board')
+    params.delete('card')
+    const nextQuery = params.toString()
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`
+    window.history.replaceState({}, document.title, nextUrl)
+
+    setPendingCardOpenRequest(null)
+  }, [pendingCardOpenRequest])
 
   return (
     <div className="grid h-screen grid-cols-1 grid-rows-[70px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">

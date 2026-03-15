@@ -26,10 +26,12 @@ export async function signInWithGoogle(): Promise<{ error: string | null }> {
     }
   }
 
+  const redirectTo = `${window.location.origin}${window.location.pathname}`
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.href,
+      redirectTo,
       queryParams: {
         prompt: "select_account",
         hd: allowedEmailDomain,

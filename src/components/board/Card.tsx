@@ -14,6 +14,7 @@ type CardProps = {
   onUpdateAvailableLabels: (labels: Label[]) => void
   boardMembers: Member[]
   currentMemberId: string
+  boardId: string
   onDelete?: (id: string) => void
   onArchive?: (id: string) => void
   onUpdate?: (id: string, data: Partial<CardData>) => void
@@ -116,6 +117,7 @@ export default function Card({
   onUpdateAvailableLabels,
   boardMembers,
   currentMemberId,
+  boardId,
   onDelete,
   onArchive,
   onUpdate,
@@ -271,6 +273,7 @@ export default function Card({
           onUpdateAvailableLabels={onUpdateAvailableLabels}
           members={boardMembers}
           currentMemberId={currentMemberId}
+          boardId={boardId}
           onMoveToList={(listId) => onUpdate?.(card.id, { listId })}
           onUpdate={(updates) => onUpdate?.(card.id, updates)}
           onDelete={onDelete ? () => onDelete(card.id) : undefined}

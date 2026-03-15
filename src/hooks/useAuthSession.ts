@@ -29,6 +29,32 @@ function getRateLimitMessage(status: LoginRateLimitStatus): string {
   return `Muitas tentativas. Tente novamente em ${minutes} minuto(s).`
 }
 
+function clearAuthHashFromUrl(): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const hash = window.location.hash
+  if (!hash) {
+    return
+  }
+
+  const normalized = hash.replace(/^#/, "")
+  const shouldClear =
+    normalized === "" ||
+    normalized.startsWith("access_token=") ||
+    normalized.startsWith("refresh_token=") ||
+    normalized.startsWith("error=") ||
+    normalized.includes("type=")
+
+  if (!shouldClear) {
+    return
+  }
+
+  const cleanUrl = `${window.location.pathname}${window.location.search}`
+  window.history.replaceState({}, document.title, cleanUrl)
+}
+
 export function useAuthSession() {
   const initialRateLimitStatus = useMemo(() => defaultRateLimit, [])
   const [session, setSession] = useState<Session | null>(null)
@@ -69,12 +95,14 @@ export function useAuthSession() {
       setRateLimitStatus(defaultRateLimit)
       setError(null)
       setSession(nextSession)
+      clearAuthHashFromUrl()
     },
     [allowedDomain, applyRateLimit],
   )
 
   useEffect(() => {
     let mounted = true
+    clearAuthHashFromUrl()
 
     const syncRateLimitStatus = async () => {
       const latestStatus = await getLoginRateLimitStatus()

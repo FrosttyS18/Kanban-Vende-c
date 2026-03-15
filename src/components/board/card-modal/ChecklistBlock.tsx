@@ -15,8 +15,6 @@ type ChecklistBlockProps = {
   onRemoveChecklist: () => void
 }
 
-const CHECKLIST_ICON_URL = 'http://localhost:3845/assets/0c04a6a95bb30c5af177f0d2a6601b30dd08486c.svg'
-
 export default function ChecklistBlock({
   checklist,
   draftItem,
@@ -80,7 +78,10 @@ export default function ChecklistBlock({
     <article className="rounded-xl border border-[#3f3f3f] bg-[#2b2c30] p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <img src={CHECKLIST_ICON_URL} alt="" className="size-3.5 shrink-0" />
+          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="none" stroke="#d1d1d1" strokeWidth="1.3" />
+            <path d="M4 8.2L6.1 10.1L11.3 5.6" fill="none" stroke="#d1d1d1" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
           {isEditingTitle ? (
             <input
               value={titleDraft}

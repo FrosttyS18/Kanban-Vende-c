@@ -18,6 +18,7 @@ type CardModalProps = {
   onUpdateAvailableLabels: (labels: Label[]) => void
   members: Member[]
   currentMemberId: string
+  boardId: string
   onMoveToList: (listId: string) => void
   onUpdate: (updates: Partial<CardData>) => void
   onDelete?: () => void
@@ -43,8 +44,6 @@ type FloatingPanelState = {
 }
 
 const DEFAULT_LABEL_COLOR = '#ff0068'
-const DRIVE_LOGO_URL = 'http://localhost:3845/assets/6a473b13ee231afeb36bf8951149d483553910a0.png'
-const CHECKLIST_ICON_URL = 'http://localhost:3845/assets/0c04a6a95bb30c5af177f0d2a6601b30dd08486c.svg'
 const COMMENT_MAX_LENGTH = 1000
 const ACTIVITY_COOLDOWN_MS = 15000
 const MEMBER_ACTIVITY_COOLDOWN_MS = 45000
@@ -165,7 +164,15 @@ function detectLinkType(url: string): LinkDraft['type'] {
 
 function LinkTypeIcon({ type }: { type: LinkDraft['type'] }) {
   if (type === 'drive') {
-    return <img src={DRIVE_LOGO_URL} alt="" className="h-8 w-8 rounded-[5px] object-cover" />
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="h-5 w-5">
+          <path d="M8.1 3.2h7.8l4.1 7.1h-7.8z" fill="#0F9D58" />
+          <path d="M4 10.3 8.1 3.2l3.9 6.8-3.9 6.8z" fill="#F4B400" />
+          <path d="m20 10.3-4.1 7.1H8.1l4-6.8h7.9z" fill="#4285F4" />
+        </svg>
+      </span>
+    )
   }
 
   if (type === 'figma') {
@@ -239,7 +246,10 @@ function PlusIcon() {
 
 function ChecklistIcon() {
   return (
-    <img src={CHECKLIST_ICON_URL} alt="" className="size-3.5" />
+    <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="none" stroke="#d1d1d1" strokeWidth="1.3" />
+      <path d="M4 8.2L6.1 10.1L11.3 5.6" fill="none" stroke="#d1d1d1" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -318,6 +328,7 @@ export default function CardModal({
   onUpdateAvailableLabels,
   members,
   currentMemberId,
+  boardId,
   onMoveToList,
   onUpdate
 }: CardModalProps) {
@@ -329,6 +340,7 @@ export default function CardModal({
   const [showDatePopover, setShowDatePopover] = useState(false)
   const [showLinkForm, setShowLinkForm] = useState(false)
   const [showLabelsPopover, setShowLabelsPopover] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
   const [openedLinkMenuId, setOpenedLinkMenuId] = useState<string | null>(null)
   const [commentText, setCommentText] = useState('')
   const [isTitleEditing, setIsTitleEditing] = useState(false)
@@ -369,6 +381,25 @@ export default function CardModal({
   const descriptionSectionRef = useRef<HTMLDivElement>(null)
 
   const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
+
+  const copyCardLink = async () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const url = new URL(window.location.href)
+    url.searchParams.set('board', boardId)
+    url.searchParams.set('card', cardState.id)
+    url.hash = ''
+
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      setLinkCopied(true)
+      window.setTimeout(() => setLinkCopied(false), 1500)
+    } catch {
+      setLinkCopied(false)
+    }
+  }
 
   useEffect(() => {
     if (!isOpen) {
@@ -883,34 +914,43 @@ export default function CardModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cart\u00e3o'}>
       <div className="h-164.25 w-270.5 max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#585353] bg-[#242528]">
         <header className="flex h-14.75 items-center justify-between border-b border-[#585353] bg-[#242528] px-6.5">
-          <div className="relative">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsListMenuOpen((prev) => !prev)}
+                className="flex min-h-7.25 max-w-130 items-center justify-between gap-2 rounded-[6px] bg-[#4b4d51] px-3 py-1 text-[13px] font-semibold text-[#d1d1d1]"
+              >
+                <span className="whitespace-normal break-all text-left">{currentList}</span>
+                <span className="shrink-0">
+                  <ChevronIcon />
+                </span>
+              </button>
+
+              {isListMenuOpen && (
+                <div className="custom-scrollbar absolute left-0 top-8.5 z-20 max-h-76 min-w-42.5 overflow-y-auto rounded-xl border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl">
+                  {listOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handleListChange(option.id)}
+                      className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm ${
+                        option.id === cardState.listId ? 'bg-[#ff0068] text-white' : 'text-[#d1d1d1] hover:bg-[#3a3b3f]'
+                      }`}
+                    >
+                      {option.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => setIsListMenuOpen((prev) => !prev)}
-              className="flex min-h-7.25 max-w-130 items-center justify-between gap-2 rounded-[6px] bg-[#4b4d51] px-3 py-1 text-[13px] font-semibold text-[#d1d1d1]"
+              onClick={() => void copyCardLink()}
+              className="h-7.25 rounded-[6px] border border-[#5a5b60] px-3 text-[12px] font-semibold text-[#d1d1d1] hover:bg-white/10"
             >
-              <span className="whitespace-normal break-all text-left">{currentList}</span>
-              <span className="shrink-0">
-                <ChevronIcon />
-              </span>
+              {linkCopied ? 'Link copiado' : 'Copiar link'}
             </button>
-
-            {isListMenuOpen && (
-              <div className="custom-scrollbar absolute left-0 top-8.5 z-20 max-h-76 min-w-42.5 overflow-y-auto rounded-xl border border-[#3f3f3f] bg-[#303134] p-1 shadow-xl">
-                {listOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => handleListChange(option.id)}
-                    className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm ${
-                      option.id === cardState.listId ? 'bg-[#ff0068] text-white' : 'text-[#d1d1d1] hover:bg-[#3a3b3f]'
-                    }`}
-                  >
-                    {option.title}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10" aria-label="Fechar">

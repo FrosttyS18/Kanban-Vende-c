@@ -24,6 +24,7 @@ type Props = {
   listOptions: Array<{ id: string; title: string }>
   boardMembers: Member[]
   currentMemberId: string
+  boardId: string
   searchActive?: boolean
   isOverlay?: boolean
 }
@@ -79,6 +80,7 @@ export default function Column({
   listOptions,
   boardMembers,
   currentMemberId,
+  boardId,
   searchActive = false,
   isOverlay = false
 }: Props) {
@@ -255,6 +257,7 @@ export default function Column({
               onUpdateAvailableLabels={onUpdateAvailableLabels}
               boardMembers={boardMembers}
               currentMemberId={currentMemberId}
+              boardId={boardId}
               onUpdate={onUpdateCard}
               onDelete={onDeleteCard}
               onArchive={onArchiveCard}

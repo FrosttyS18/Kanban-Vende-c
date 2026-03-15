@@ -701,11 +701,15 @@ export async function updateBoardRemote(boardId: string, payload: { title: strin
 }
 
 export async function reorderBoardsRemote(orderedBoardIds: string[]): Promise<void> {
-  await Promise.all(
+  const responses = await Promise.all(
     orderedBoardIds.map((boardId, index) =>
       supabase.from('boards').update({ position: index }).eq('id', boardId)
     )
   )
+  const failed = responses.find((response) => response.error)
+  if (failed?.error) {
+    throw new Error(failed.error.message)
+  }
   invalidateBoardStoreCache()
 }
 
@@ -809,11 +813,15 @@ export async function deleteListRemote(columnId: string): Promise<void> {
 }
 
 export async function reorderListsRemote(columns: ColumnData[]): Promise<void> {
-  await Promise.all(
+  const responses = await Promise.all(
     columns.map((column) =>
       supabase.from('lists').update({ position: column.position }).eq('id', column.id)
     )
   )
+  const failed = responses.find((response) => response.error)
+  if (failed?.error) {
+    throw new Error(failed.error.message)
+  }
   invalidateBoardStoreCache()
 }
 
@@ -1190,7 +1198,11 @@ export async function syncCardsOrderingRemote(boardId: string, columns: ColumnDa
     return supabase.from('cards').update({ list_id: card.listId, position: currentListPosition }).eq('id', card.id)
   })
 
-  await Promise.all(updates)
+  const responses = await Promise.all(updates)
+  const failed = responses.find((response) => response.error)
+  if (failed?.error) {
+    throw new Error(failed.error.message)
+  }
   invalidateBoardStoreCache()
 }
 
