@@ -3,7 +3,27 @@ import path from 'node:path'
 
 const SOURCE_DIR = path.resolve(process.cwd(), 'src')
 const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.json'])
-const MOJIBAKE_PATTERN = /(Ã[\u0080-\u00BFA-Za-z]|ï¿½|â€™|â€œ|â€\u009d|â€“|â€”|Ì|\uFFFD)/u
+const MOJIBAKE_PATTERN = /(Ãƒ[\u0080-\u00BFA-Za-z]|Ã¯Â¿Â½|Ã¢â‚¬â„¢|Ã¢â‚¬Å“|Ã¢â‚¬\u009d|Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃŒÂ|\uFFFD)/u
+const MOJIBAKE_SNIPPETS = [
+  'NÃ£o',
+  'nÃ£o',
+  'possÃ­vel',
+  'cartÃ£o',
+  'descriÃ§Ã£o',
+  'organizaÃ§Ã£o',
+  'VocÃª',
+  'vocÃª',
+  'UsuÃ¡rio',
+  'ediÃ§Ã£o',
+  'comentÃ¡rio',
+  'Ã¡',
+  'Ã©',
+  'Ãª',
+  'Ã£',
+  'Ã§',
+  'ï¿½',
+  'Ì'
+]
 const IGNORED_FILES = new Set([path.join(SOURCE_DIR, 'utils', 'normalizeMojibake.ts')])
 
 function collectFiles(directory) {
@@ -34,7 +54,7 @@ function scanFile(filePath) {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    if (MOJIBAKE_PATTERN.test(line)) {
+    if (MOJIBAKE_PATTERN.test(line) || MOJIBAKE_SNIPPETS.some((snippet) => line.includes(snippet))) {
       findings.push({
         filePath,
         lineNumber: index + 1,

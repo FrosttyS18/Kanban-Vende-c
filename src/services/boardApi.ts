@@ -1236,7 +1236,7 @@ export async function inviteMemberByEmailRemote(boardId: string, email: string, 
 
   const target = (profileRows as Array<{ id: string; email: string }> | null)?.[0]
   if (!target?.id || !isUuid(target.id)) {
-    return { ok: false, message: 'Este usuario ainda nao acessou o sistema.' }
+    return { ok: false, message: 'Este usuário ainda não acessou o sistema.' }
   }
 
   const { error: upsertError } = await supabase.from('board_members').upsert(

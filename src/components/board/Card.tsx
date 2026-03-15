@@ -24,6 +24,7 @@ type CardProps = {
   onUpdate?: (id: string, data: Partial<CardData>) => void
   isOverlay?: boolean
   disableModal?: boolean
+  operationErrorMessage?: string | null
 }
 
 type DueBadge = {
@@ -130,7 +131,8 @@ export default function Card({
   onArchive,
   onUpdate,
   isOverlay = false,
-  disableModal = false
+  disableModal = false,
+  operationErrorMessage
 }: CardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalOpenAtSignal, setModalOpenAtSignal] = useState(closeModalSignal ?? 0)
@@ -295,6 +297,7 @@ export default function Card({
           onUpdate={(updates) => onUpdate?.(card.id, updates)}
           onDelete={onDelete ? () => onDelete(card.id) : undefined}
           onArchive={onArchive ? () => onArchive(card.id) : undefined}
+          externalError={operationErrorMessage ?? null}
         />
       )}
 

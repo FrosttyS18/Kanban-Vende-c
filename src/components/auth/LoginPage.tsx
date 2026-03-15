@@ -51,7 +51,7 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
             role="alert"
             className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-center text-xs text-red-300"
           >
-            Nao foi possivel iniciar o login no momento. Tente novamente mais tarde.
+              Não foi possível iniciar o login no momento. Tente novamente mais tarde.
           </div>
         )}
 

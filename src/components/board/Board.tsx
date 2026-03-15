@@ -222,7 +222,7 @@ export default function Board({
         const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, options)
         applyStore(nextStore)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
+        const message = error instanceof Error ? error.message : 'Não foi possível carregar os boards.'
         setStoreError(message)
       } finally {
         if (shouldShowLoader) {
@@ -247,13 +247,41 @@ export default function Board({
   }, [selectedBoardId, store.boards, store.currentBoardId])
 
   const handleRemoteError = useCallback(
-    (action: string, error: unknown, boardIdOverride?: string) => {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel salvar as alteracoes.'
-      console.error(`[board:${action}]`, error)
+    (action: string, error: unknown, boardIdOverride?: string, details?: { resourceId?: string; rollback?: () => void }) => {
+      details?.rollback?.()
+      const message = error instanceof Error ? error.message : 'Não foi possível salvar as alterações.'
+      const boardId = boardIdOverride ?? activeBoardId
+      console.error('[board_mutation_error]', {
+        action,
+        boardId,
+        resourceId: details?.resourceId,
+        message,
+        error
+      })
       showOperationError(message)
-      void loadStore(boardIdOverride ?? activeBoardId, { forceRefresh: true, silent: true })
+      void loadStore(boardId, { forceRefresh: true, silent: true })
     },
     [activeBoardId, loadStore, showOperationError]
+  )
+
+  const rollbackBoardDragSnapshot = useCallback(
+    (dragSnapshot: { cards: CardData[]; columns: ColumnData[] } | null) => {
+      if (!dragSnapshot) {
+        return
+      }
+
+      const snapshot = storeRef.current
+      const otherColumns = snapshot.columns.filter((column) => column.boardId !== activeBoardId)
+      const boardListIds = new Set(dragSnapshot.columns.map((column) => column.id))
+      const otherCards = snapshot.cards.filter((card) => !boardListIds.has(card.listId))
+
+      applyStore({
+        ...snapshot,
+        columns: [...otherColumns, ...dragSnapshot.columns],
+        cards: [...otherCards, ...dragSnapshot.cards]
+      })
+    },
+    [activeBoardId, applyStore]
   )
 
   const isCreateBoardOpen = createBoardSignal > dismissedCreateSignal
@@ -757,7 +785,7 @@ export default function Board({
 
     const existingMember = snapshot.members.find((member) => member.email.toLowerCase() === normalizedEmail)
     if (!existingMember) {
-      return { ok: false, message: 'Este usuario ainda nao acessou o sistema.' }
+      return { ok: false, message: 'Este usuário ainda não acessou o sistema.' }
     }
 
     const hasAccessAlready = boardShare.members.some((entry) => entry.memberId === existingMember.id)
@@ -933,14 +961,19 @@ export default function Board({
 
         const targetListTitle = boardColumns.find((column) => column.id === cardToPersist.listId)?.title ?? 'Lista'
         void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
-          handleRemoteError('move_card_upsert', error, activeBoardId)
+          handleRemoteError('move_card_upsert', error, activeBoardId, {
+            resourceId: cardToPersist.id,
+            rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
+          })
         })
         recordActivity(cardToPersist.id, 'card_moved', ACTIVITY_MESSAGES.cardMovedToList(targetListTitle), { dedupeWindowMinutes: 10 })
       }
 
       const cardsToSyncPayload = boardCards.map((card) => (card.id === cardToPersist.id ? cardToPersist : card))
       void syncCardsOrderingRemote(activeBoardId, boardColumns, cardsToSyncPayload).catch((error) => {
-        handleRemoteError('sync_cards_ordering', error, activeBoardId)
+        handleRemoteError('sync_cards_ordering', error, activeBoardId, {
+          rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
+        })
       })
       return
     }
@@ -986,7 +1019,9 @@ export default function Board({
     })
 
     void reorderListsRemote(movedColumns).catch((error) => {
-      handleRemoteError('reorder_lists', error, activeBoardId)
+      handleRemoteError('reorder_lists', error, activeBoardId, {
+        rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
+      })
     })
   }
 
@@ -1184,6 +1219,7 @@ export default function Board({
                   onCardOpen={(cardId) => onCardOpen?.(activeBoardId, cardId)}
                   onCardClose={() => onCardClose?.(activeBoardId)}
                   searchActive={searchQuery.trim().length > 0}
+                  operationErrorMessage={operationError}
                 />
               ))}
             </SortableContext>

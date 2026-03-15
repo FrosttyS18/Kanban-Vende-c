@@ -31,6 +31,7 @@ type Props = {
   onCardClose: () => void
   searchActive?: boolean
   isOverlay?: boolean
+  operationErrorMessage?: string | null
 }
 
 function AddCardInput({
@@ -90,7 +91,8 @@ export default function Column({
   onCardOpen,
   onCardClose,
   searchActive = false,
-  isOverlay = false
+  isOverlay = false,
+  operationErrorMessage
 }: Props) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
@@ -275,6 +277,7 @@ export default function Column({
               onArchive={onArchiveCard}
               isOverlay={isOverlay}
               disableModal={isOverlay}
+              operationErrorMessage={operationErrorMessage}
             />
           ))}
         </SortableContext>

@@ -253,7 +253,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         if (cancelled) {
           return
         }
-        const message = error instanceof Error ? error.message : 'Nao foi possivel entrar no board pelo link.'
+        const message = error instanceof Error ? error.message : 'Não foi possível entrar no board pelo link.'
         setShareJoinError(message)
       } finally {
         if (!cancelled) {

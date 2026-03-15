@@ -187,7 +187,7 @@ export function useAuthSession() {
         if (nextStatus.isBlocked) {
           setError(getRateLimitMessage(nextStatus))
         } else {
-          setError("Nao foi possivel iniciar o login com Google.")
+          setError("Não foi possível iniciar o login com Google.")
         }
       }
     } finally {

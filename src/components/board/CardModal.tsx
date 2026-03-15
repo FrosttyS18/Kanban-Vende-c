@@ -25,6 +25,7 @@ type CardModalProps = {
   onRecordActivity?: (input: Omit<RecordCardActivityInput, 'cardId'>) => void
   onDelete?: () => void
   onArchive?: () => void
+  externalError?: string | null
 }
 
 type LinkDraft = {
@@ -342,7 +343,8 @@ export default function CardModal({
   boardId,
   onMoveToList,
   onUpdate,
-  onRecordActivity
+  onRecordActivity,
+  externalError = null
 }: CardModalProps) {
   const [cardState, setCardState] = useState<CardData>(card)
   const [isListMenuOpen, setIsListMenuOpen] = useState(false)
@@ -504,6 +506,24 @@ export default function CardModal({
       window.removeEventListener('keydown', onEscape)
     }
   }, [showLinkForm])
+
+  const syncDueInputs = (dueDate?: string) => {
+    if (!dueDate) {
+      setDueDateInput('')
+      setDueTimeInput('')
+      return
+    }
+
+    const date = new Date(dueDate)
+    const yyyy = date.getFullYear()
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    const hh = String(date.getHours()).padStart(2, '0')
+    const min = String(date.getMinutes()).padStart(2, '0')
+
+    setDueDateInput(`${yyyy}-${mm}-${dd}`)
+    setDueTimeInput(`${hh}:${min}`)
+  }
 
   if (!isOpen) {
     return null
@@ -713,38 +733,6 @@ export default function CardModal({
       exists ? `removeu membro ${memberName}` : `adicionou membro ${memberName}`
     )
   }
-
-  const syncDueInputs = (dueDate?: string) => {
-    if (!dueDate) {
-      setDueDateInput('')
-      setDueTimeInput('')
-      return
-    }
-
-    const date = new Date(dueDate)
-    const yyyy = date.getFullYear()
-    const mm = String(date.getMonth() + 1).padStart(2, '0')
-    const dd = String(date.getDate()).padStart(2, '0')
-    const hh = String(date.getHours()).padStart(2, '0')
-    const min = String(date.getMinutes()).padStart(2, '0')
-
-    setDueDateInput(`${yyyy}-${mm}-${dd}`)
-    setDueTimeInput(`${hh}:${min}`)
-  }
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    setCardState(card)
-    setTitleDraft(card.title)
-    if (!isDescriptionEditing) {
-      setDescriptionDraft(card.description)
-      lastSavedDescriptionRef.current = card.description
-    }
-    syncDueInputs(card.dueDate)
-  }, [card.id, card.updatedAt, card.title, card.description, card.dueDate, isDescriptionEditing, isOpen])
 
   const openDatePopover = (anchor: HTMLButtonElement) => {
     syncDueInputs(cardState.dueDate)
@@ -1026,6 +1014,11 @@ export default function CardModal({
 
         <div className="grid h-[calc(100%-59px)] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_460px]">
           <section className="custom-scrollbar overflow-y-auto px-6.5 py-6 lg:px-6.5 lg:py-5.75">
+            {externalError && (
+              <div className="mb-4 rounded-[10px] border border-[#820002] bg-[#820002]/20 px-3 py-2 text-sm text-[#ffb4ae]">
+                {externalError}
+              </div>
+            )}
             <div className="flex items-start gap-2">
               <button
                 type="button"

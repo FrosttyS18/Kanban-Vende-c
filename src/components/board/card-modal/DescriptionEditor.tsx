@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Bold, ChevronDown, Italic, List, ListOrdered } from 'lucide-react'
 
 type DescriptionEditorProps = {
@@ -203,7 +203,11 @@ export default function DescriptionEditor({
     onDraftChange(sanitizeHtmlForStorage(editorRef.current.innerHTML))
   }
 
-  const openFromReadArea = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const openFromReadArea = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement
+    if (target.closest('[data-description-toggle="true"]')) {
+      return
+    }
     event.preventDefault()
     onStartEdit()
   }
@@ -225,10 +229,10 @@ export default function DescriptionEditor({
             type="button"
             onClick={() => applyCommand('italic')}
             className="flex h-8 items-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-[#d1d1d1] hover:bg-[#303134]"
-            aria-label={'It\u00e1lico'}
+            aria-label="Itálico"
           >
             <Italic className="size-4" />
-            <span>{'It\u00e1lico'}</span>
+            <span>Itálico</span>
           </button>
           <button
             type="button"
@@ -266,7 +270,7 @@ export default function DescriptionEditor({
           }}
           className="min-h-55 max-h-80 overflow-y-auto px-4 py-3 text-left text-[16px] leading-[1.55] text-[#d1d1d1] outline-none [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
           role="textbox"
-          aria-label={'Editor de descri\u00e7\u00e3o'}
+          aria-label="Editor de descrição"
           dir="ltr"
         />
 
@@ -289,25 +293,20 @@ export default function DescriptionEditor({
       className="mt-2 w-full cursor-text rounded-[10px] border border-[#3f3f3f] bg-[#2b2c30] px-4 py-3"
       role="button"
       tabIndex={0}
+      onMouseDown={openFromReadArea}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onStartEdit()
         }
       }}
-      aria-label={'Abrir edi\u00e7\u00e3o da descri\u00e7\u00e3o'}
+      aria-label="Abrir edição da descrição"
     >
       {readHtml ? (
         <div className="relative">
-          <button
-            type="button"
-            onMouseDown={openFromReadArea}
-            className={`absolute inset-x-0 top-0 z-10 rounded-[8px] ${shouldCollapse ? 'bottom-12' : 'bottom-0'}`}
-            aria-label={'Abrir edição da descrição'}
-          />
           <div className="relative">
             <div
-              className={`relative z-0 text-left text-[16px] leading-[1.55] text-[#d1d1d1] [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 ${shouldCollapse && !isExpanded ? 'max-h-30 overflow-hidden' : ''}`}
+              className={`text-left text-[16px] leading-[1.55] text-[#d1d1d1] [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 ${shouldCollapse && !isExpanded ? 'max-h-30 overflow-hidden' : ''}`}
               dangerouslySetInnerHTML={{ __html: readHtml }}
               dir="ltr"
             />
@@ -331,17 +330,8 @@ export default function DescriptionEditor({
           )}
         </div>
       ) : (
-        <div className="relative">
-          <button
-            type="button"
-            onMouseDown={openFromReadArea}
-            className="absolute inset-0 z-10 rounded-[8px]"
-            aria-label={'Abrir edição da descrição'}
-          />
-          <p className="relative z-0 mt-3 text-[16px] text-[#8b8b8b]">{'Adicione uma descri\u00e7\u00e3o do briefing.'}</p>
-        </div>
+        <p className="mt-3 text-[16px] text-[#8b8b8b]">Adicione uma descrição do briefing.</p>
       )}
     </div>
   )
 }
-
