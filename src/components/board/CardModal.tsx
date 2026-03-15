@@ -1,5 +1,5 @@
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { MessageSquareText } from 'lucide-react'
+import { Link2, MessageSquareText } from 'lucide-react'
 import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import ChecklistCreateMenu from '@/components/board/card-modal/ChecklistCreateMenu'
@@ -7,6 +7,7 @@ import ChecklistBlock from '@/components/board/card-modal/ChecklistBlock'
 import DescriptionEditor from '@/components/board/card-modal/DescriptionEditor'
 import LabelsPopover from '@/components/board/card-modal/LabelsPopover'
 import DatePopover from '@/components/board/card-modal/DatePopover'
+import { normalizeMojibake } from '@/utils/normalizeMojibake'
 
 type CardModalProps = {
   isOpen: boolean
@@ -57,6 +58,20 @@ function formatDueDateWithTime(value?: string): string {
   const datePart = date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
   const timePart = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   return `${datePart} ${timePart}`
+}
+
+function normalizeIsoMinute(value?: string): string {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  date.setSeconds(0, 0)
+  return date.toISOString()
 }
 
 function getDueStatus(dueDate?: string, isCompleted?: boolean): { label: string; className: string } | null {
@@ -113,13 +128,6 @@ function formatAttachmentMeta(createdAt: string): string {
     minute: '2-digit'
   })
   return `Adicionado h\u00e1 ${relativeTimeFromNow(createdAt)}; ${absolute}`
-}
-
-function normalizeLegacyText(value: string): string {
-  return value
-    .replaceAll('conclu�do', 'concluído')
-    .replaceAll('Conclu�do', 'Concluído')
-    .replaceAll('concluído', 'concluído')
 }
 
 function validateUrl(url: string): boolean {
@@ -287,6 +295,10 @@ function DotsIcon() {
   )
 }
 
+function ShareIcon() {
+  return <Link2 className="size-3.5" aria-hidden="true" />
+}
+
 function ToolButton({
   label,
   icon,
@@ -379,6 +391,7 @@ export default function CardModal({
   const [labelsAnchorEl, setLabelsAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [dateAnchorEl, setDateAnchorEl] = useState<HTMLButtonElement | null>(null)
   const descriptionSectionRef = useRef<HTMLDivElement>(null)
+  const lastSavedDescriptionRef = useRef(card.description)
 
   const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
 
@@ -588,14 +601,21 @@ export default function CardModal({
   }
 
   const saveDescription = () => {
-    if (descriptionDraft !== cardState.description) {
-      updateCardWithActivity({ description: descriptionDraft }, 'briefing_updated', 'atualizou o briefing da demanda')
+    const nextDescription = descriptionDraft
+    if (nextDescription !== lastSavedDescriptionRef.current) {
+      lastSavedDescriptionRef.current = nextDescription
+      updateCardWithActivity(
+        { description: nextDescription },
+        'briefing_updated',
+        'atualizou o briefing da demanda',
+        { dedupeWindowMinutes: 5 }
+      )
     }
     setIsDescriptionEditing(false)
   }
 
   const cancelDescription = () => {
-    setDescriptionDraft(cardState.description)
+    setDescriptionDraft(lastSavedDescriptionRef.current)
     setIsDescriptionEditing(false)
   }
 
@@ -710,6 +730,20 @@ export default function CardModal({
     setDueTimeInput(`${hh}:${min}`)
   }
 
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    setCardState(card)
+    setTitleDraft(card.title)
+    if (!isDescriptionEditing) {
+      setDescriptionDraft(card.description)
+      lastSavedDescriptionRef.current = card.description
+    }
+    syncDueInputs(card.dueDate)
+  }, [card.id, card.updatedAt, card.title, card.description, card.dueDate, isDescriptionEditing, isOpen])
+
   const openDatePopover = (anchor: HTMLButtonElement) => {
     syncDueInputs(cardState.dueDate)
     setDateAnchorEl(anchor)
@@ -724,6 +758,11 @@ export default function CardModal({
 
   const saveDueDate = () => {
     if (!dueDateInput) {
+      if (!cardState.dueDate) {
+        closeDatePopover()
+        return
+      }
+
       updateCardWithActivity({ dueDate: undefined }, 'due_date_removed', 'removeu data de entrega')
       closeDatePopover()
       return
@@ -735,10 +774,17 @@ export default function CardModal({
       return
     }
 
+    const nextDueDate = parsed.toISOString()
+    if (normalizeIsoMinute(nextDueDate) === normalizeIsoMinute(cardState.dueDate)) {
+      closeDatePopover()
+      return
+    }
+
     updateCardWithActivity(
-      { dueDate: parsed.toISOString() },
+      { dueDate: nextDueDate },
       'due_date_updated',
-      `definiu prazo para ${formatDueDateWithTime(parsed.toISOString())}`
+      `definiu prazo para ${formatDueDateWithTime(nextDueDate)}`,
+      { dedupeWindowMinutes: 10 }
     )
     closeDatePopover()
   }
@@ -819,8 +865,18 @@ export default function CardModal({
   }
 
   const renameChecklist = (checklistId: string, title: string) => {
-    const next = cardState.checklists.map((item) => (item.id === checklistId ? { ...item, title } : item))
-    updateCardWithActivity({ checklists: next }, 'checklist_renamed', `renomeou checklist para ${title}`)
+    const nextTitle = title.trim()
+    if (!nextTitle) {
+      return
+    }
+
+    const currentChecklist = cardState.checklists.find((item) => item.id === checklistId)
+    if (!currentChecklist || currentChecklist.title === nextTitle) {
+      return
+    }
+
+    const next = cardState.checklists.map((item) => (item.id === checklistId ? { ...item, title: nextTitle } : item))
+    updateCardWithActivity({ checklists: next }, 'checklist_renamed', `renomeou checklist para ${nextTitle}`)
   }
 
   const removeChecklistItem = (checklistId: string, itemId: string) => {
@@ -848,6 +904,15 @@ export default function CardModal({
     }
 
     if (linkDraft.id) {
+      const currentLink = cardState.links.find((link) => link.id === linkDraft.id)
+      if (currentLink && currentLink.title === title && currentLink.url === url && currentLink.type === linkDraft.type) {
+        setLinkDraft({ title: '', url: '', type: 'other' })
+        setLinkError('')
+        setShowLinkForm(false)
+        setLinkFormPanel(null)
+        return
+      }
+
       const next = cardState.links.map((link) => (link.id === linkDraft.id ? { ...link, title, url, type: linkDraft.type } : link))
       updateCardWithActivity({ links: next }, 'link_updated', `editou link ${title}`)
     } else {
@@ -941,13 +1006,6 @@ export default function CardModal({
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => void copyCardLink()}
-              className="h-7.25 rounded-[6px] border border-[#5a5b60] px-3 text-[12px] font-semibold text-[#d1d1d1] hover:bg-white/10"
-            >
-              {linkCopied ? 'Link copiado' : 'Copiar link'}
-            </button>
           </div>
 
           <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10" aria-label="Fechar">
@@ -1025,6 +1083,15 @@ export default function CardModal({
                 }}
                 active={showLinkForm}
                 isLinkTrigger
+              />
+              <ToolButton
+                label={linkCopied ? 'Link copiado' : 'Compartilhar card'}
+                icon={<ShareIcon />}
+                width="w-[146px]"
+                onClick={() => {
+                  void copyCardLink()
+                }}
+                active={linkCopied}
               />
             </div>
 
@@ -1388,11 +1455,11 @@ export default function CardModal({
                           <MessageSquareText className="size-3.5 shrink-0 text-[#9f9f9f]" />
                           <span className="font-bold">{activity.actorName}</span>: Deixou um novo comentario.
                         </p>
-                        <p className="mt-1 whitespace-pre-wrap wrap-break-word text-[15px] font-normal leading-[1.35] text-[#d1d1d1]">{normalizeLegacyText(activity.message)}</p>
+                        <p className="mt-1 whitespace-pre-wrap wrap-break-word text-[15px] font-normal leading-[1.35] text-[#d1d1d1]">{normalizeMojibake(activity.message)}</p>
                       </>
                     ) : (
                       <p className="text-[16px] leading-tight text-[#d1d1d1]">
-                        <span className="font-bold">{activity.actorName}</span>: {normalizeLegacyText(activity.message)}
+                        <span className="font-bold">{activity.actorName}</span>: {normalizeMojibake(activity.message)}
                       </p>
                     )}
                     <p className="mt-1 text-[10px] text-[#d1d1d1]">

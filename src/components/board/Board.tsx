@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
+import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
 import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import {
@@ -456,7 +457,7 @@ export default function Board({
         if (addedMemberIds.length > 0) {
           const memberNotifications = addedMemberIds
             .filter((memberId) => memberId !== actor.id)
-            .map((memberId) => {
+            .map((memberId): MemberNotification | null => {
               const targetMember = snapshot.members.find((member) => member.id === memberId)
               if (!targetMember) {
                 return null
@@ -468,8 +469,8 @@ export default function Board({
                 boardId: activeBoardId,
                 cardId: card.id,
                 type: 'member_assigned' as const,
-                title: 'VocÃª foi adicionado em um cartÃ£o',
-                message: `${actor.name} adicionou vocÃª em "${card.title}".`,
+                title: ACTIVITY_MESSAGES.memberAssignedTitle,
+                message: ACTIVITY_MESSAGES.memberAssignedMessage(actor.name, card.title),
                 createdAt: nowIso,
                 isRead: false
               }
@@ -545,7 +546,7 @@ export default function Board({
 
     void createCardRemote(activeBoardId, createdCard)
       .then(() => {
-        recordActivity(createdCard.id, 'card_created', `adicionou este cartÃ£o a ${createdListTitle}.`)
+        recordActivity(createdCard.id, 'card_created', ACTIVITY_MESSAGES.cardCreatedInList(createdListTitle))
       })
       .catch((error) => {
         handleRemoteError('create_card', error, activeBoardId)
@@ -929,7 +930,7 @@ export default function Board({
         void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
           handleRemoteError('move_card_upsert', error, activeBoardId)
         })
-        recordActivity(cardToPersist.id, 'card_moved', `moveu o cartÃ£o para ${targetListTitle}.`, { dedupeWindowMinutes: 10 })
+        recordActivity(cardToPersist.id, 'card_moved', ACTIVITY_MESSAGES.cardMovedToList(targetListTitle), { dedupeWindowMinutes: 10 })
       }
 
       const cardsToSyncPayload = boardCards.map((card) => (card.id === cardToPersist.id ? cardToPersist : card))
@@ -1190,7 +1191,7 @@ export default function Board({
                   className="h-11 w-full justify-start rounded-2xl bg-[#3f3f3f] px-4 text-[14px] font-medium text-[#d1d1d1] hover:bg-[#4a4a4a]"
                 >
                   <Plus className="mr-2 size-4" />
-                  Adicionar um cartÃ£o
+                  Adicionar um cart\u00e3o
                 </Button>
               ) : (
                 <div className="space-y-2 rounded-2xl border border-white/10 bg-[#101204] p-3">
@@ -1289,7 +1290,7 @@ export default function Board({
               value={newBoardTitle}
               onChange={(event) => setNewBoardTitle(event.target.value)}
               className="mt-4 h-11 rounded-xl border border-primary bg-black px-3.5 text-[18px] font-semibold text-white placeholder:text-[#7d7d7d]"
-              placeholder="Nome do time/organizaÃ§Ã£o/Ã¡rea"
+              placeholder="Nome do time/organiza\u00e7\u00e3o/\u00e1rea"
               autoFocus
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
