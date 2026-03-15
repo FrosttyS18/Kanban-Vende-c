@@ -2,16 +2,18 @@
 
 Este documento serve como a fonte oficial da verdade para o estado atual do projeto, documentando o que foi feito, o que está funcionando e o que ainda precisa ser implementado.
 
-## Atualização técnica real (13/03/2026)
+## Atualização técnica real (14/03/2026)
 
 - Stack em uso no código: React + TypeScript + Vite + Tailwind + shadcn/ui + dnd-kit + Supabase Auth.
 - Persistência do domínio de board ainda está em `localStorage` via `boardService.ts`.
 - Supabase hoje está aplicado em autenticação e RPC de rate limit de login.
+- Multiusuário existente no frontend: owner por board, compartilhamento, membros em card e notificações.
 - Realtime de board, modelagem relacional de cards/lists/boards e RLS de domínio ainda não estão ativos no fluxo principal.
 - Fluxo de links no card está ativo; upload com Firebase permanece legado no repositório e não está conectado ao fluxo principal.
+- Deploy alvo definido: Cloudflare Pages.
 - Projeto padronizado para UTF-8 com `.editorconfig` e `.gitattributes`.
 
-## 📅 Atualizado em: 07/01/2026
+## 📅 Atualizado em: 14/03/2026
 
 ## 🚀 Estado Atual
 O projeto passou por uma refatoração significativa para atingir um nível "Sênior" de qualidade de código e experiência do usuário (UX). A arquitetura agora utiliza bibliotecas robustas para Drag-and-Drop e gerenciamento de estado mais limpo.
@@ -48,13 +50,26 @@ O projeto passou por uma refatoração significativa para atingir um nível "Sê
   - **Etiquetas**: Sistema robusto de etiquetas com cores, criação e edição dinâmica.
   - **Datas**: Seletor de data com input manual e visualização de status (atrasado/em dia).
   - **Checklist**: Status de conclusão ("Check") sincronizado visualmente entre o modal e o card no board.
-- **Anexos**:
-  - Upload de múltiplos arquivos simultaneamente.
-  - Visualização de miniaturas (previews) para imagens.
-  - Reordenação de anexos via arrastar e soltar (Drag-and-Drop).
-- **Membros**: Visualização de avatares de membros (funcionalidade visual pronta).
+- **Links**:
+  - Cadastro de links Drive/Figma/URL genérica no card.
+  - Extração automática de tipo do link na UI.
+  - Listagem e remoção de links no modal do card.
+- **Membros**:
+  - Seleção de membros por board no card.
+  - Etiqueta automática ao adicionar membro no card.
+  - Sincronização de membros do card com compartilhamento do board.
 
-#### 4. Interface e UX
+#### 4. Colaboração e Acesso (Frontend)
+- **Compartilhamento de board**:
+  - Fluxo por e-mail com permissão `view`/`edit`.
+  - Owner do board não pode ser removido da lista de acesso.
+  - Regra de pelo menos 1 membro em acesso.
+- **Notificações**:
+  - Evento ao adicionar membro no card.
+  - Sino no header com contagem de não lidas.
+  - Navegação da notificação para o card correspondente.
+
+#### 5. Interface e UX
 - **Design Moderno**: Uso de componentes shadcn/ui e ícones Lucide.
 - **Feedback Visual**: Badges coloridas para datas e etiquetas.
 - **Responsividade**: Layout adaptável e menus inteligentes (popovers que detectam bordas da tela).
@@ -69,19 +84,20 @@ O projeto passou por uma refatoração significativa para atingir um nível "Sê
 - [ ] **Arquivar vs Excluir**: Clarificar na UI a diferença entre "Excluir para sempre" e "Arquivar".
 
 #### 2. Melhorias Futuras (Backlog)
-- [ ] **Backend Real**: Substituir `localStorage` por uma API/Banco de Dados real (Supabase/Firebase/Node.js).
-- [ ] **Upload Real de Arquivos**: Implementar upload para storage (AWS S3, etc), atualmente os anexos são URLs temporárias (`URL.createObjectURL`).
+- [ ] **Backend Real**: Substituir `localStorage` por persistência relacional no Supabase com RLS.
+- [ ] **Realtime**: Atualização de board/card em tempo real para múltiplos usuários.
 - [ ] **Sistema de Comentários**: A UI existe, mas a lógica de adicionar/salvar comentários ainda não está totalmente persistida.
+- [ ] **Deploy Cloudflare + Supabase**: consolidar variáveis de ambiente, redirects OAuth e observabilidade em produção.
 
 ---
 
 ## 🛠️ Detalhes Técnicos Recentes (Fixes)
-- **Persistência de Anexos**: Migração de `URL.createObjectURL` (temporário) para `FileReader` (Base64) para garantir que imagens sejam salvas.
-- **Funcionalidade "Tornar Capa"**: Adicionada lógica para marcar um anexo como capa e refletir isso visualmente no card.
-- **Fix de Persistência**: Adicionados `useEffect` no `Board.tsx` para salvar estado no `localStorage`.
-- **Fix de Imports**: Correção de `import type` para compatibilidade com novos padrões de build.
-- **Limpeza de Código**: Remoção de variáveis não utilizadas (`members`, `Trash2`) e props mortas (`onArchiveCard` legado).
-- **Correção de Bugs Visuais**: Ajuste no z-index e posicionamento de popovers de data e etiquetas.
+- **Governança de acesso no frontend**: owner do board protegido contra remoção no compartilhamento.
+- **Consistência de membros**: membros do card sincronizados com membros com acesso ao board.
+- **Notificações locais de atribuição**: evento ao adicionar membro no card com navegação para o card.
+- **Controle de histórico**: limite de atividades por card para evitar crescimento indefinido no estado local.
+- **Ajustes de UX**: fechamento por clique fora em menus de perfil/notificações e melhorias de spacing no header.
+- **Padronização de estado**: normalizações no `boardService.ts` para remover legados e manter store consistente.
 
 ---
 

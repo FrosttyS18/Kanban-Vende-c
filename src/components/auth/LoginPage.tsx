@@ -17,53 +17,53 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
       className="flex min-h-screen items-center justify-center p-4"
       style={{ backgroundColor: "#0A0A0A" }}
     >
-      <section
-        className="w-full max-w-104 rounded-3xl border border-white/5 p-8 shadow-[0_24px_72px_rgba(0,0,0,0.6)]"
-        style={{ backgroundColor: "#141414" }}
-      >
-        <header className="mb-7 flex flex-col items-center gap-4 text-center">
-          <Logo className="h-9 w-auto" />
-          <div className="space-y-1.5">
-            <h1 className="text-[2rem]/[1.1] font-semibold tracking-[-0.02em] text-white">
-              Acesso ao Kanban do VENDE-C
-            </h1>
-            <p className="text-sm text-white/45">Entre com sua conta Google corporativa</p>
-          </div>
-        </header>
+      <div className="flex w-full max-w-[565px] flex-col items-center gap-4">
+        <section
+          className="relative box-border h-[365.796px] w-full overflow-hidden rounded-[27px] border border-white/5 shadow-[0_24px_72px_rgba(0,0,0,0.6)]"
+          style={{ backgroundColor: "#141414" }}
+        >
+          <Logo className="absolute left-1/2 top-[50.398px] h-[42.12px] w-auto -translate-x-1/2" />
 
-        <div className="space-y-4">
+          <h1 className="absolute left-1/2 top-[117.398px] -translate-x-1/2 whitespace-nowrap text-[24.442px] font-bold leading-normal tracking-[-0.02em] text-white">
+            Acesso ao Kaban do VENDE-C
+          </h1>
+
+          <p className="absolute left-1/2 top-[153.278px] -translate-x-1/2 whitespace-nowrap text-[16.368px] font-normal leading-normal text-[#555555]">
+            Entre com sua conta Google corporativa
+          </p>
+
           <Button
             onClick={onLogin}
             disabled={disabled}
-            className="h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground hover:bg-primary/90"
+            className="absolute left-[35px] top-[209.518px] h-[50px] w-[496px] rounded-[9px] bg-primary text-[18px] font-bold text-primary-foreground hover:bg-primary/90"
           >
             {loading ? "Conectando..." : "Continuar com Google"}
           </Button>
 
-          {!isConfigured && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-center text-xs text-red-300"
-            >
-              Nao foi possivel iniciar o login no momento. Tente novamente mais tarde.
-            </div>
-          )}
+          <footer className="absolute left-1/2 top-[290.518px] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap text-[16.368px] font-normal leading-normal text-[#555555]">
+            <ShieldCheck className="size-[16px]" />
+            <span>Acesso protegido por domínio corporativo</span>
+          </footer>
+        </section>
 
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-center text-xs text-amber-200"
-            >
-              {error}
-            </div>
-          )}
-        </div>
+        {!isConfigured && (
+          <div
+            role="alert"
+            className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-center text-xs text-red-300"
+          >
+            Nao foi possivel iniciar o login no momento. Tente novamente mais tarde.
+          </div>
+        )}
 
-        <footer className="mt-7 flex items-center justify-center gap-2 text-xs text-white/35">
-          <ShieldCheck className="size-3.5" />
-          <span>Acesso protegido por dominio corporativo</span>
-        </footer>
-      </section>
+        {error && (
+          <div
+            role="alert"
+            className="w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-center text-xs text-amber-200"
+          >
+            {error}
+          </div>
+        )}
+      </div>
     </main>
   )
 }

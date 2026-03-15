@@ -1,18 +1,28 @@
 Projeto: SocialTeam Kanban (Custom Board)
 Tipo: Aplicação Web (SaaS Interno) Objetivo: Gerenciamento de tarefas para time de Social Media e Design. Data: 07/01/2026
 
-## Estado real atual (13/03/2026)
+## Estado real atual (14/03/2026)
 
 Este bloco representa o estado real do código no repositório e deve prevalecer sobre descrições históricas abaixo.
 
 - Frontend ativo: React + TypeScript + Vite + Tailwind + shadcn/ui + dnd-kit.
-- Autenticação ativa: Supabase Auth com Google OAuth + restrição de domínio corporativo.
-- Persistência atual do board: localStorage (`kanban_vndc_store_v1`), ainda sem persistência relacional do board no Supabase.
+- Autenticação ativa: Supabase Auth com Google OAuth + restrição de domínio corporativo (`@vende-c.com`).
+- Rate limit de login: integrado via RPCs Supabase (`get_login_rate_limit_status`, `register_login_failure`, `clear_login_rate_limit`).
+- Persistência atual do board: localStorage (`kanban_vndc_store_v1`) via `boardService.ts`.
+- Multiusuário no frontend: compartilhamento por board, owner do board, membros em card e notificações no header.
+- Persistência multiusuário no backend: ainda não ativa para boards/cards/lists/memberships/notifications.
 - Realtime de boards/cards: ainda não implementado.
 - Links em cards: fluxo ativo para Drive/Figma/outros no modal do card.
 - Upload Firebase: código legado existente no repositório, sem integração ativa no fluxo principal atual.
-- Sessão: persistida no cliente via Supabase.
+- Sessão: persistida no cliente via Supabase (`socialteam-kanban-auth`).
+- Deploy alvo: Cloudflare Pages.
 - Controle de encoding: padrão UTF-8 com `.editorconfig` e normalização de texto com `.gitattributes`.
+
+## Relatório técnico backend
+
+Para implantação correta com vários usuários e hospedagem no Cloudflare, consultar:
+
+- `RELATORIO_SUPABASE_CLOUDFLARE_MULTIUSUARIO.md`
 
 1. Stack Tecnológica (A Arquitetura)
 Para garantir escalabilidade, tempo real e acesso via navegador (Mobile/Desktop) sem instalação.

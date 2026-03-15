@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 import Board from '@/components/board/Board'
 import { type BoardData, type MemberNotification } from '@/types'
-import { loadBoardStore, saveBoardStore } from '@/services/boardService'
+import { deleteBoardRemote, joinBoardViaTokenRemote, markNotificationsReadRemote, reorderBoardsRemote, updateBoardRemote } from '@/services/boardApi'
 
 interface BoardPageProps {
   userEmail?: string
@@ -12,6 +12,14 @@ interface BoardPageProps {
 }
 
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
+  const [shareJoinError, setShareJoinError] = useState<string | null>(null)
+  const [pendingShareToken, setPendingShareToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') {
+      return null
+    }
+    const match = window.location.pathname.match(/^\/shared\/([^/]+)$/)
+    return match?.[1] ? decodeURIComponent(match[1]) : null
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [createBoardSignal, setCreateBoardSignal] = useState(0)
   const [shareBoardSignal, setShareBoardSignal] = useState(0)
@@ -35,61 +43,73 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     setBoardReloadKey((prev) => prev + 1)
   }
 
-  const renameBoard = (boardId: string, title: string, color: string) => {
+  const renameBoard = async (boardId: string, title: string, color: string) => {
     const nextTitle = title.trim()
     if (!nextTitle) {
       return
     }
 
-    const store = loadBoardStore()
-    const now = new Date().toISOString()
-    const nextBoards = store.boards.map((board) => (board.id === boardId ? { ...board, title: nextTitle, color, updatedAt: now } : board))
-    saveBoardStore({ ...store, boards: nextBoards })
-    setBoards(nextBoards)
+    await updateBoardRemote(boardId, { title: nextTitle, color })
     setBoardReloadKey((prev) => prev + 1)
   }
 
-  const deleteBoard = (boardId: string) => {
-    const store = loadBoardStore()
-    if (store.boards.length <= 1) {
+  const deleteBoard = async (boardId: string) => {
+    if (boards.length <= 1) {
       return
     }
-    const targetBoard = store.boards.find((board) => board.id === boardId)
-    if (!targetBoard || targetBoard.ownerMemberId !== store.currentMemberId) {
-      return
-    }
-
-    const nextBoards = store.boards.filter((board) => board.id !== boardId)
-    const nextColumns = store.columns.filter((column) => column.boardId !== boardId)
-    const nextColumnIds = new Set(nextColumns.map((column) => column.id))
-    const nextCards = store.cards.filter((card) => nextColumnIds.has(card.listId))
-    const nextShareByBoard = Object.fromEntries(Object.entries(store.shareByBoard).filter(([id]) => id !== boardId))
-    const nextLabelsByBoard = Object.fromEntries(Object.entries(store.labelsByBoard).filter(([id]) => id !== boardId))
-    const nextCurrentBoardId = store.currentBoardId === boardId ? nextBoards[0]?.id ?? store.currentBoardId : store.currentBoardId
-
-    saveBoardStore({
-      ...store,
-      boards: nextBoards,
-      columns: nextColumns,
-      cards: nextCards,
-      shareByBoard: nextShareByBoard,
-      labelsByBoard: nextLabelsByBoard,
-      currentBoardId: nextCurrentBoardId
-    })
-
+    await deleteBoardRemote(boardId)
+    const nextBoards = boards.filter((board) => board.id !== boardId)
     setBoards(nextBoards)
-    setActiveBoardId(nextCurrentBoardId)
+    setActiveBoardId((prev) => (prev === boardId ? nextBoards[0]?.id ?? '' : prev))
     setBoardReloadKey((prev) => prev + 1)
   }
 
-  const reorderBoards = (orderedBoardIds: string[]) => {
-    const store = loadBoardStore()
+  const reorderBoards = async (orderedBoardIds: string[]) => {
     const orderMap = new Map(orderedBoardIds.map((id, index) => [id, index]))
-    const nextBoards = [...store.boards].sort((a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
-    saveBoardStore({ ...store, boards: nextBoards })
+    const nextBoards = [...boards].sort((a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
     setBoards(nextBoards)
+    await reorderBoardsRemote(orderedBoardIds)
     setBoardReloadKey((prev) => prev + 1)
   }
+
+  useEffect(() => {
+    if (!pendingShareToken) {
+      return
+    }
+
+    let cancelled = false
+
+    const joinBoardFromToken = async () => {
+      try {
+        const boardId = await joinBoardViaTokenRemote(pendingShareToken)
+        if (cancelled) {
+          return
+        }
+        setActiveBoardId(boardId)
+        setShareJoinError(null)
+        setBoardReloadKey((prev) => prev + 1)
+        if (window.location.pathname.startsWith('/shared/')) {
+          window.history.replaceState({}, document.title, '/')
+        }
+      } catch (error) {
+        if (cancelled) {
+          return
+        }
+        const message = error instanceof Error ? error.message : 'Não foi possível entrar no board pelo link.'
+        setShareJoinError(message)
+      } finally {
+        if (!cancelled) {
+          setPendingShareToken(null)
+        }
+      }
+    }
+
+    void joinBoardFromToken()
+
+    return () => {
+      cancelled = true
+    }
+  }, [pendingShareToken])
 
   return (
     <div className="grid h-screen grid-cols-1 grid-rows-[70px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
@@ -110,13 +130,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             if (!currentMemberId) {
               return
             }
-            const store = loadBoardStore()
-            saveBoardStore({
-              ...store,
-              notifications: store.notifications.map((notification) =>
-                notification.memberId === currentMemberId ? { ...notification, isRead: true } : notification
-              )
-            })
+            void markNotificationsReadRemote(currentMemberId)
             setUnreadNotificationsCount(0)
             setBoardReloadKey((prev) => prev + 1)
           }}
@@ -139,6 +153,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       />
 
       <main className="overflow-hidden bg-[#252525]">
+        {shareJoinError && (
+          <div className="mx-4 mt-3 rounded-xl border border-[#820002] bg-[#820002]/20 px-3 py-2 text-sm text-[#ffb4ae]">
+            {shareJoinError}
+          </div>
+        )}
         <Board
           key={boardReloadKey}
           searchQuery={searchQuery}

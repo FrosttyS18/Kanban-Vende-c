@@ -1,7 +1,7 @@
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { type Activity, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member } from '@/types'
-import { createId } from '@/services/boardService'
+import { createId } from '@/utils/createId'
 import ChecklistCreateMenu from '@/components/board/card-modal/ChecklistCreateMenu'
 import ChecklistBlock from '@/components/board/card-modal/ChecklistBlock'
 import DescriptionEditor from '@/components/board/card-modal/DescriptionEditor'

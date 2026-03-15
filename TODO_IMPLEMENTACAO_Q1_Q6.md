@@ -1,11 +1,13 @@
 # SocialTeam Kanban - Planejamento de Implementação
 
-## Status de execução real (13/03/2026)
+## Status de execução real (14/03/2026)
 
-- Q1: parcialmente concluído no frontend (Google OAuth, domínio corporativo e sessão persistente).
-- Q1: rate limit depende de RPCs no Supabase e requer validação final de ambiente.
-- Q2 a Q6: permanecem como backlog principal para implementação incremental.
+- Q1: concluído no frontend (Google OAuth, domínio corporativo e sessão persistente).
+- Q1: rate limit integrado via RPCs no Supabase.
+- Q2: parcialmente concluído no frontend (owner do board, compartilhamento e regras locais de acesso).
+- Q3 a Q6: permanecem como backlog principal para implementação incremental no backend.
 - Persistência central de boards/cards/lists no Supabase ainda não está ativa; estado principal ainda está em `localStorage`.
+- Deploy alvo: Cloudflare Pages, ainda pendente de configuração final junto com Supabase para produção multiusuário.
 
 ## Objetivo
 
@@ -91,3 +93,11 @@ Definir o fluxo de UI e o backlog por ordem de execução para autenticação, p
 ## Ordem de Implementação Recomendada
 
 Q1 -> Q2 -> Q3 -> Q4 -> Q5 -> Q6
+
+## Checklist de Deploy Cloudflare (produção)
+
+- Definir variáveis `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` e `VITE_ALLOWED_EMAIL_DOMAIN` no ambiente de produção e preview.
+- Configurar `Site URL` e `Redirect URLs` do Supabase Auth para domínios Cloudflare usados pelo app.
+- Validar fluxo OAuth em produção e preview, incluindo retorno para `window.location.origin`.
+- Publicar migrações SQL de schema, RLS e RPC no Supabase antes do go-live.
+- Validar política de segurança: nenhuma operação sensível com service role no cliente.

@@ -1,33 +1,44 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Archive, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { type ArchivedCardData } from '@/types'
-import { loadBoardStore, saveBoardStore } from '@/services/boardService'
+import { deleteCardRemote, loadBoardStoreFromRemote } from '@/services/boardApi'
 
 export default function ArchivedBoard() {
   const [archivedCards, setArchivedCards] = useState<ArchivedCardData[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const loadCards = () => {
-      const store = loadBoardStore()
+  const loadCards = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const store = await loadBoardStoreFromRemote()
       setArchivedCards(store.archivedCards)
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : 'Não foi possível carregar os cartões arquivados.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
     }
-
-    loadCards()
-    window.addEventListener('storage', loadCards)
-    return () => window.removeEventListener('storage', loadCards)
   }, [])
 
-  const handleDeleteForever = (cardId: string) => {
-    const store = loadBoardStore()
-    const nextArchived = store.archivedCards.filter((card) => card.id !== cardId)
+  useEffect(() => {
+    void loadCards()
+  }, [loadCards])
 
-    saveBoardStore({
-      ...store,
-      archivedCards: nextArchived
-    })
-
-    setArchivedCards(nextArchived)
+  const handleDeleteForever = async (cardId: string) => {
+    setDeletingCardId(cardId)
+    try {
+      await deleteCardRemote(cardId)
+      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : 'Não foi possível excluir o cartão arquivado.'
+      setError(message)
+    } finally {
+      setDeletingCardId(null)
+    }
   }
 
   return (
@@ -37,7 +48,22 @@ export default function ArchivedBoard() {
         Arquivados
       </h1>
 
-      {archivedCards.length === 0 ? (
+      {isLoading && (
+        <div className="flex h-64 items-center justify-center text-muted-foreground">
+          <p>Carregando cartões arquivados...</p>
+        </div>
+      )}
+
+      {error && !isLoading && (
+        <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#141414] px-4 py-3">
+          <p className="text-sm text-[#d1d1d1]">{error}</p>
+          <Button variant="outline" className="h-8 border-white/20 bg-transparent text-xs text-white hover:bg-white/10" onClick={() => void loadCards()}>
+            Tentar novamente
+          </Button>
+        </div>
+      )}
+
+      {!isLoading && archivedCards.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center text-muted-foreground">
           <p>Nenhum card arquivado.</p>
         </div>
@@ -50,7 +76,14 @@ export default function ArchivedBoard() {
               <article key={`${card.id}_${card.archivedAt}`} className="rounded-lg border border-white/10 bg-[#141414] p-4">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h3 className="truncate text-sm font-semibold uppercase text-foreground">{card.title}</h3>
-                  <Button variant="ghost" size="icon" className="size-7 text-red-400 hover:bg-red-500/10 hover:text-red-300" onClick={() => handleDeleteForever(card.id)} aria-label="Excluir definitivamente">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                    onClick={() => void handleDeleteForever(card.id)}
+                    aria-label="Excluir definitivamente"
+                    disabled={deletingCardId === card.id}
+                  >
                     <Trash2 className="size-4" />
                   </Button>
                 </div>

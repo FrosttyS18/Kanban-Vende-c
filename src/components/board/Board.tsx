@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import {
   DndContext,
@@ -18,8 +18,27 @@ import { Input } from '@/components/ui/input'
 import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
-import { type Activity, type BoardData, type BoardShareSettings, type BoardStore, type CardData, type Label, type MemberNotification } from '@/types'
-import { createId, loadBoardStore, saveBoardStore } from '@/services/boardService'
+import { type Activity, type BoardData, type BoardShareSettings, type BoardStore, type CardData, type ColumnData, type Label, type MemberNotification } from '@/types'
+import { createId } from '@/utils/createId'
+import {
+  archiveCardRemote,
+  clearLegacyBoardStorage,
+  createBoardRemote,
+  createCardRemote,
+  createListRemote,
+  deleteCardRemote,
+  deleteListRemote,
+  insertNotificationsRemote,
+  loadBoardStoreFromRemote,
+  replaceBoardLabelsRemote,
+  replaceBoardShareSettingsRemote,
+  reorderListsRemote,
+  setStoredBoardId,
+  subscribeBoardRealtime,
+  syncCardsOrderingRemote,
+  updateListRemote,
+  upsertCardRemote
+} from '@/services/boardApi'
 
 type BoardProps = {
   searchQuery: string
@@ -59,6 +78,21 @@ const BOARD_COLOR_OPTIONS = [
   '#d946ef',
   '#ec4899'
 ]
+const REALTIME_RELOAD_DEBOUNCE_MS = 250
+
+const EMPTY_STORE: BoardStore = {
+  version: 3,
+  boards: [],
+  columns: [],
+  cards: [],
+  labelsByBoard: {},
+  shareByBoard: {},
+  archivedCards: [],
+  notifications: [],
+  members: [],
+  currentBoardId: '',
+  currentMemberId: ''
+}
 
 function shouldThrottleCompletionActivity(activity: Activity, actorId: string, nowMs: number): boolean {
   if (activity.type !== 'system' || activity.actorId !== actorId) {
@@ -73,29 +107,6 @@ function shouldThrottleCompletionActivity(activity: Activity, actorId: string, n
   return nowMs - activityTimeMs <= ACTIVITY_COOLDOWN_MS
 }
 
-function getInitialsFromName(name: string): string {
-  const parts = name
-    .split(/\s+/)
-    .map((value) => value.trim())
-    .filter(Boolean)
-  if (parts.length === 0) {
-    return 'US'
-  }
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase()
-  }
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-}
-
-function deriveNameFromEmail(email: string): string {
-  const localPart = email.split('@')[0] ?? 'usuario'
-  return localPart
-    .split(/[._-]/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
 export default function Board({
   searchQuery,
   createBoardSignal,
@@ -104,7 +115,9 @@ export default function Board({
   selectedBoardId,
   onBoardMetaChange
 }: BoardProps) {
-  const [store, setStore] = useState<BoardStore>(() => loadBoardStore())
+  const [store, setStore] = useState<BoardStore>(EMPTY_STORE)
+  const [isLoadingStore, setIsLoadingStore] = useState(true)
+  const [storeError, setStoreError] = useState<string | null>(null)
   const [isAddingList, setIsAddingList] = useState(false)
   const [newListTitle, setNewListTitle] = useState('')
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
@@ -114,6 +127,7 @@ export default function Board({
   const [newBoardColor, setNewBoardColor] = useState('#ff0068')
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
+  const realtimeReloadTimer = useRef<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -122,6 +136,28 @@ export default function Board({
       }
     })
   )
+
+  const loadStore = useCallback(
+    async (preferredBoardId?: string) => {
+      setIsLoadingStore(true)
+      setStoreError(null)
+      try {
+        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId)
+        setStore(nextStore)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
+        setStoreError(message)
+      } finally {
+        setIsLoadingStore(false)
+      }
+    },
+    [selectedBoardId]
+  )
+
+  useEffect(() => {
+    clearLegacyBoardStorage()
+    void loadStore(selectedBoardId)
+  }, [loadStore, selectedBoardId])
 
   const activeBoardId = useMemo(() => {
     if (selectedBoardId && store.boards.some((board) => board.id === selectedBoardId)) {
@@ -135,13 +171,8 @@ export default function Board({
   const isShareBoardOpen = shareBoardSignal > dismissedShareSignal
 
   useEffect(() => {
-    const storeToSave = {
-      ...store,
-      currentBoardId: activeBoardId
-    }
-
-    saveBoardStore(storeToSave)
-  }, [activeBoardId, store])
+    setStoredBoardId(activeBoardId)
+  }, [activeBoardId])
 
   const profileNotifications = useMemo(
     () =>
@@ -207,6 +238,29 @@ export default function Board({
     return () => window.clearTimeout(timerId)
   }, [activeBoardId, currentCards, openCardRequest])
 
+  useEffect(() => {
+    if (!activeBoardId) {
+      return
+    }
+
+    const unsubscribe = subscribeBoardRealtime(activeBoardId, () => {
+      if (realtimeReloadTimer.current) {
+        window.clearTimeout(realtimeReloadTimer.current)
+      }
+      realtimeReloadTimer.current = window.setTimeout(() => {
+        void loadStore(activeBoardId)
+      }, REALTIME_RELOAD_DEBOUNCE_MS)
+    })
+
+    return () => {
+      if (realtimeReloadTimer.current) {
+        window.clearTimeout(realtimeReloadTimer.current)
+        realtimeReloadTimer.current = null
+      }
+      unsubscribe()
+    }
+  }, [activeBoardId, loadStore])
+
   const filteredCards = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
@@ -261,6 +315,9 @@ export default function Board({
       }
     }
 
+    let cardToPersist: CardData | null = null
+    let notificationsToPersist: MemberNotification[] = []
+
     setStore((prev) => {
       const actor = prev.members.find((member) => member.id === prev.currentMemberId)
       const nowIso = new Date().toISOString()
@@ -311,6 +368,7 @@ export default function Board({
 
               if (memberNotifications.length > 0) {
                 nextNotifications = [...prev.notifications, ...memberNotifications]
+                notificationsToPersist = memberNotifications
               }
             }
           }
@@ -336,6 +394,7 @@ export default function Board({
             nextCard.activities = [activity, ...card.activities].slice(0, MAX_CARD_ACTIVITIES)
           }
 
+          cardToPersist = nextCard
           return nextCard
         })
 
@@ -345,9 +404,23 @@ export default function Board({
         cards: nextCards
       }
     })
+
+    if (cardToPersist) {
+      void upsertCardRemote(activeBoardId, cardToPersist).catch(() => {
+        void loadStore(activeBoardId)
+      })
+    }
+
+    if (notificationsToPersist.length > 0) {
+      void insertNotificationsRemote(notificationsToPersist).catch(() => {
+        void loadStore(activeBoardId)
+      })
+    }
   }
 
   const addCardToList = (listId: string, title: string, placement: 'top' | 'bottom') => {
+    let createdCard: CardData | null = null
+    let nextCardsPayload: CardData[] = []
     setStore((prev) => {
       const nowIso = new Date().toISOString()
       const actor = prev.members.find((member) => member.id === prev.currentMemberId)
@@ -380,30 +453,45 @@ export default function Board({
         createdAt: nowIso,
         updatedAt: nowIso
       }
+      createdCard = newCard
 
       if (placement === 'bottom') {
+        nextCardsPayload = [...prev.cards, newCard]
         return {
           ...prev,
-          cards: [...prev.cards, newCard]
+          cards: nextCardsPayload
         }
       }
 
       const insertIndex = prev.cards.findIndex((card) => card.listId === listId)
       if (insertIndex === -1) {
+        nextCardsPayload = [...prev.cards, newCard]
         return {
           ...prev,
-          cards: [...prev.cards, newCard]
+          cards: nextCardsPayload
         }
       }
 
       const nextCards = [...prev.cards]
       nextCards.splice(insertIndex, 0, newCard)
+      nextCardsPayload = nextCards
 
       return {
         ...prev,
         cards: nextCards
       }
     })
+
+    if (createdCard) {
+      void createCardRemote(activeBoardId, createdCard).catch(() => {
+        void loadStore(activeBoardId)
+      })
+      if (nextCardsPayload.length > 0) {
+        void syncCardsOrderingRemote(activeBoardId, currentColumns, nextCardsPayload).catch(() => {
+          void loadStore(activeBoardId)
+        })
+      }
+    }
   }
 
   const deleteCard = (cardId: string) => {
@@ -411,6 +499,9 @@ export default function Board({
       ...prev,
       cards: prev.cards.filter((card) => card.id !== cardId)
     }))
+    void deleteCardRemote(cardId).catch(() => {
+      void loadStore(activeBoardId)
+    })
   }
 
   const archiveCard = (cardId: string) => {
@@ -441,6 +532,9 @@ export default function Board({
         ]
       }
     })
+    void archiveCardRemote(cardId).catch(() => {
+      void loadStore(activeBoardId)
+    })
   }
 
   const addList = () => {
@@ -449,23 +543,31 @@ export default function Board({
       return
     }
 
+    let createdList: ColumnData | null = null
     setStore((prev) => {
       const boardColumns = prev.columns.filter((column) => column.boardId === activeBoardId)
       const nextPosition = boardColumns.length
+      createdList = {
+        id: createId('list'),
+        boardId: activeBoardId,
+        title,
+        position: nextPosition
+      }
 
       return {
         ...prev,
         columns: [
           ...prev.columns,
-          {
-            id: createId('list'),
-            boardId: activeBoardId,
-            title,
-            position: nextPosition
-          }
+          createdList
         ]
       }
     })
+
+    if (createdList) {
+      void createListRemote(createdList).catch(() => {
+        void loadStore(activeBoardId)
+      })
+    }
 
     setNewListTitle('')
     setIsAddingList(false)
@@ -481,6 +583,9 @@ export default function Board({
       ...prev,
       columns: prev.columns.map((column) => (column.id === columnId ? { ...column, title: normalizedTitle } : column))
     }))
+    void updateListRemote(columnId, { title: normalizedTitle }).catch(() => {
+      void loadStore(activeBoardId)
+    })
   }
 
   const deleteColumn = (columnId: string) => {
@@ -505,6 +610,9 @@ export default function Board({
         cards: prev.cards.filter((card) => card.listId !== columnId)
       }
     })
+    void deleteListRemote(columnId).catch(() => {
+      void loadStore(activeBoardId)
+    })
   }
 
   const updateAvailableLabels = (labels: Label[]) => {
@@ -515,85 +623,89 @@ export default function Board({
         [activeBoardId]: labels
       }
     }))
+    void replaceBoardLabelsRemote(activeBoardId, labels).catch(() => {
+      void loadStore(activeBoardId)
+    })
   }
 
   const updateShareSettings = (nextSettings: BoardShareSettings) => {
-    setStore((prev) => {
-      const existingShare = prev.shareByBoard[activeBoardId]
-      const boardOwnerId = prev.boards.find((board) => board.id === activeBoardId)?.ownerMemberId ?? prev.currentMemberId
-      const ownerShareEntry = existingShare?.members.find((member) => member.memberId === boardOwnerId)
-      const memberMap = new Map(nextSettings.members.map((member) => [member.memberId, member]))
-      if (!memberMap.has(boardOwnerId)) {
-        memberMap.set(boardOwnerId, ownerShareEntry ?? { memberId: boardOwnerId, permission: 'edit' })
-      }
-      const validMembers = Array.from(memberMap.values())
-      const validMemberIdSet = new Set(validMembers.map((member) => member.memberId))
+    const existingShare = store.shareByBoard[activeBoardId]
+    const boardOwnerId = currentBoard?.ownerMemberId ?? store.currentMemberId
+    const ownerShareEntry = existingShare?.members.find((member) => member.memberId === boardOwnerId)
+    const memberMap = new Map(nextSettings.members.map((member) => [member.memberId, member]))
+    if (!memberMap.has(boardOwnerId)) {
+      memberMap.set(boardOwnerId, ownerShareEntry ?? { memberId: boardOwnerId, permission: 'edit' })
+    }
 
-      return {
-        ...prev,
-        shareByBoard: {
-          ...prev.shareByBoard,
-          [activeBoardId]: {
-            ...nextSettings,
-            members: validMembers
-          }
-        },
-        cards: prev.cards.map((card) =>
-          currentBoardCardListIds.has(card.listId)
-            ? {
-                ...card,
-                memberIds: card.memberIds.filter((memberId) => validMemberIdSet.has(memberId)),
-                activities: card.activities.slice(0, MAX_CARD_ACTIVITIES)
-              }
-            : card
-        )
+    const normalizedSettings: BoardShareSettings = {
+      ...nextSettings,
+      members: Array.from(memberMap.values())
+    }
+    const validMemberIdSet = new Set(normalizedSettings.members.map((member) => member.memberId))
+
+    const cardsToPersistMap = new Map<string, CardData>()
+    store.cards.forEach((card) => {
+      if (!currentBoardCardListIds.has(card.listId)) {
+        return
       }
+      const filteredMemberIds = card.memberIds.filter((memberId) => validMemberIdSet.has(memberId))
+      const needsUpdate = filteredMemberIds.length !== card.memberIds.length
+      if (!needsUpdate) {
+        return
+      }
+      cardsToPersistMap.set(card.id, {
+        ...card,
+        memberIds: filteredMemberIds,
+        activities: card.activities.slice(0, MAX_CARD_ACTIVITIES)
+      })
+    })
+
+    const cardsToPersist = Array.from(cardsToPersistMap.values())
+
+    setStore((prev) => ({
+      ...prev,
+      shareByBoard: {
+        ...prev.shareByBoard,
+        [activeBoardId]: normalizedSettings
+      },
+      cards: prev.cards.map((card) => cardsToPersistMap.get(card.id) ?? card)
+    }))
+
+    void replaceBoardShareSettingsRemote(activeBoardId, boardOwnerId, normalizedSettings).catch(() => {
+      void loadStore(activeBoardId)
+    })
+
+    cardsToPersist.forEach((card) => {
+      void upsertCardRemote(activeBoardId, card).catch(() => {
+        void loadStore(activeBoardId)
+      })
     })
   }
 
   const inviteMemberByEmail = (email: string, permission: 'view' | 'edit'): { ok: boolean; message?: string } => {
-    let result: { ok: boolean; message?: string } = { ok: false, message: 'Não foi possível adicionar este e-mail.' }
     const normalizedEmail = email.trim().toLowerCase()
+    const boardShare = store.shareByBoard[activeBoardId]
+    if (!boardShare) {
+      return { ok: false, message: 'Board sem configuracao de compartilhamento.' }
+    }
 
-    setStore((prev) => {
-      const boardShare = prev.shareByBoard[activeBoardId]
-      if (!boardShare) {
-        result = { ok: false, message: 'Board sem configuração de compartilhamento.' }
-        return prev
-      }
+    const existingMember = store.members.find((member) => member.email.toLowerCase() === normalizedEmail)
+    if (!existingMember) {
+      return { ok: false, message: 'Este usuario ainda nao acessou o sistema.' }
+    }
 
-      const existingMember = prev.members.find((member) => member.email.toLowerCase() === normalizedEmail)
-      const hasAccessAlready = boardShare.members.some((entry) => entry.memberId === existingMember?.id)
-      if (hasAccessAlready) {
-        result = { ok: false, message: 'Este e-mail já possui acesso.' }
-        return prev
-      }
+    const hasAccessAlready = boardShare.members.some((entry) => entry.memberId === existingMember.id)
+    if (hasAccessAlready) {
+      return { ok: false, message: 'Este e-mail ja possui acesso.' }
+    }
 
-      const memberToUse =
-        existingMember ??
-        {
-          id: createId('member'),
-          name: deriveNameFromEmail(normalizedEmail),
-          email: normalizedEmail,
-          initials: getInitialsFromName(deriveNameFromEmail(normalizedEmail)),
-          color: BOARD_COLOR_OPTIONS[prev.members.length % BOARD_COLOR_OPTIONS.length]
-        }
+    const nextSettings: BoardShareSettings = {
+      ...boardShare,
+      members: [...boardShare.members, { memberId: existingMember.id, permission }]
+    }
+    updateShareSettings(nextSettings)
 
-      result = { ok: true }
-      return {
-        ...prev,
-        members: existingMember ? prev.members : [...prev.members, memberToUse],
-        shareByBoard: {
-          ...prev.shareByBoard,
-          [activeBoardId]: {
-            ...boardShare,
-            members: [...boardShare.members, { memberId: memberToUse.id, permission }]
-          }
-        }
-      }
-    })
-
-    return result
+    return { ok: true }
   }
 
   const onDragStart = (event: DragStartEvent) => {
@@ -713,6 +825,14 @@ export default function Board({
       return
     }
 
+    const isActiveCard = active.data.current?.type === 'Card'
+    if (isActiveCard) {
+      void syncCardsOrderingRemote(activeBoardId, currentColumns, store.cards).catch(() => {
+        void loadStore(activeBoardId)
+      })
+      return
+    }
+
     const isActiveColumn = active.data.current?.type === 'Column'
     if (!isActiveColumn) {
       return
@@ -725,6 +845,7 @@ export default function Board({
         ? String((over.data.current?.card as CardData | undefined)?.listId ?? over.id)
         : String(over.id)
 
+    let movedColumnsPayload: ColumnData[] = []
     setStore((prev) => {
       const boardColumns = prev.columns
         .filter((column) => column.boardId === activeBoardId)
@@ -741,6 +862,7 @@ export default function Board({
         ...column,
         position: index
       }))
+      movedColumnsPayload = movedColumns
 
       const otherColumns = prev.columns.filter((column) => column.boardId !== activeBoardId)
 
@@ -749,6 +871,11 @@ export default function Board({
         columns: [...otherColumns, ...movedColumns]
       }
     })
+    if (movedColumnsPayload.length > 0) {
+      void reorderListsRemote(movedColumnsPayload).catch(() => {
+        void loadStore(activeBoardId)
+      })
+    }
   }
 
   const createBoard = () => {
@@ -759,6 +886,7 @@ export default function Board({
 
     const now = new Date().toISOString()
     const boardId = createId('board')
+    const linkToken = createId('share').replace('share_', '')
 
     const nextBoards = [
       ...store.boards,
@@ -783,17 +911,61 @@ export default function Board({
         ...prev.shareByBoard,
         [boardId]: {
           boardId,
-          linkToken: createId('share').replace('share_', ''),
+          linkToken,
           allowLinkAccess: true,
           members: [{ memberId: prev.currentMemberId, permission: 'edit' }]
         }
       },
       currentBoardId: boardId
     }))
+    void createBoardRemote(
+      {
+        id: boardId,
+        title,
+        color: newBoardColor,
+        ownerMemberId: store.currentMemberId,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        boardId,
+        linkToken,
+        allowLinkAccess: true,
+        members: [{ memberId: store.currentMemberId, permission: 'edit' }]
+      }
+    ).catch(() => {
+      void loadStore(boardId)
+    })
 
     setNewBoardTitle('')
     setNewBoardColor('#ff0068')
     setDismissedCreateSignal(createBoardSignal)
+  }
+
+  if (isLoadingStore) {
+    return <div className="flex h-full w-full items-center justify-center text-sm text-[#d1d1d1]">Carregando boards...</div>
+  }
+
+  if (storeError) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-sm text-[#d1d1d1]">{storeError}</p>
+        <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => void loadStore(activeBoardId || selectedBoardId)}>
+          Tentar novamente
+        </Button>
+      </div>
+    )
+  }
+
+  if (store.boards.length === 0) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-sm text-[#d1d1d1]">Nenhum board encontrado.</p>
+        <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => setDismissedCreateSignal(createBoardSignal - 1)}>
+          Criar primeiro board
+        </Button>
+      </div>
+    )
   }
 
   if (!currentBoard || !shareSettings) {
@@ -994,3 +1166,4 @@ export default function Board({
     </div>
   )
 }
+
