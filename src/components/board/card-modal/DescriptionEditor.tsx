@@ -203,11 +203,7 @@ export default function DescriptionEditor({
     onDraftChange(sanitizeHtmlForStorage(editorRef.current.innerHTML))
   }
 
-  const handleReadMouseDownCapture = (event: React.MouseEvent<HTMLDivElement>) => {
-    const target = event.target
-    if (target instanceof Element && target.closest('[data-description-toggle="true"]')) {
-      return
-    }
+  const openFromReadArea = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     onStartEdit()
   }
@@ -293,7 +289,6 @@ export default function DescriptionEditor({
       className="mt-2 w-full cursor-text rounded-[10px] border border-[#3f3f3f] bg-[#2b2c30] px-4 py-3"
       role="button"
       tabIndex={0}
-      onMouseDownCapture={handleReadMouseDownCapture}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
@@ -303,17 +298,23 @@ export default function DescriptionEditor({
       aria-label={'Abrir edi\u00e7\u00e3o da descri\u00e7\u00e3o'}
     >
       {readHtml ? (
-        <div>
+        <div className="relative">
+          <button
+            type="button"
+            onMouseDown={openFromReadArea}
+            className={`absolute inset-x-0 top-0 z-10 rounded-[8px] ${shouldCollapse ? 'bottom-12' : 'bottom-0'}`}
+            aria-label={'Abrir edição da descrição'}
+          />
           <div className="relative">
             <div
-              className={`text-left text-[16px] leading-[1.55] text-[#d1d1d1] [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 ${shouldCollapse && !isExpanded ? 'max-h-30 overflow-hidden' : ''}`}
+              className={`relative z-0 text-left text-[16px] leading-[1.55] text-[#d1d1d1] [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 ${shouldCollapse && !isExpanded ? 'max-h-30 overflow-hidden' : ''}`}
               dangerouslySetInnerHTML={{ __html: readHtml }}
               dir="ltr"
             />
             {shouldCollapse && !isExpanded && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-linear-to-t from-[#2b2c30] to-transparent" />}
           </div>
           {shouldCollapse && (
-            <div className="mt-3">
+            <div className="relative z-20 mt-3">
               <button
                 type="button"
                 onClick={(event) => {
@@ -330,7 +331,15 @@ export default function DescriptionEditor({
           )}
         </div>
       ) : (
-        <p className="mt-3 text-[16px] text-[#8b8b8b]">{'Adicione uma descri\u00e7\u00e3o do briefing.'}</p>
+        <div className="relative">
+          <button
+            type="button"
+            onMouseDown={openFromReadArea}
+            className="absolute inset-0 z-10 rounded-[8px]"
+            aria-label={'Abrir edição da descrição'}
+          />
+          <p className="relative z-0 mt-3 text-[16px] text-[#8b8b8b]">{'Adicione uma descri\u00e7\u00e3o do briefing.'}</p>
+        </div>
       )}
     </div>
   )
