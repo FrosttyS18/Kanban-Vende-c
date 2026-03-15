@@ -58,6 +58,90 @@ function toHtml(value: string): string {
   return escapeHtml(value).replaceAll('\n', '<br>')
 }
 
+function sanitizeHtmlForStorage(value: string): string {
+  if (typeof window === 'undefined') {
+    return value
+  }
+
+  const source = value.trim()
+  if (!source) {
+    return ''
+  }
+
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div>${source}</div>`, 'text/html')
+  const root = doc.body.firstElementChild
+  if (!root) {
+    return ''
+  }
+
+  const serializeNodes = (nodes: NodeListOf<ChildNode> | ChildNode[]): string => {
+    return Array.from(nodes).map(serializeNode).join('')
+  }
+
+  const serializeNode = (node: ChildNode): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent ?? '')
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return ''
+    }
+
+    const element = node as HTMLElement
+    const tag = element.tagName.toLowerCase()
+
+    if (tag === 'br') {
+      return '<br>'
+    }
+
+    if (tag === 'b' || tag === 'strong') {
+      return `<strong>${serializeNodes(element.childNodes)}</strong>`
+    }
+
+    if (tag === 'i' || tag === 'em') {
+      return `<em>${serializeNodes(element.childNodes)}</em>`
+    }
+
+    if (tag === 'u') {
+      return `<u>${serializeNodes(element.childNodes)}</u>`
+    }
+
+    if (tag === 's' || tag === 'strike') {
+      return `<s>${serializeNodes(element.childNodes)}</s>`
+    }
+
+    if (tag === 'ul' || tag === 'ol') {
+      const items = Array.from(element.children)
+        .filter((child) => child.tagName.toLowerCase() === 'li')
+        .map((child) => `<li>${serializeNodes(child.childNodes)}</li>`)
+        .join('')
+
+      if (!items) {
+        return ''
+      }
+
+      return `<${tag}>${items}</${tag}>`
+    }
+
+    if (tag === 'li') {
+      return `<li>${serializeNodes(element.childNodes)}</li>`
+    }
+
+    if (tag === 'p' || tag === 'div') {
+      const content = serializeNodes(element.childNodes)
+      return content ? `<p>${content}</p>` : '<p><br></p>'
+    }
+
+    return serializeNodes(element.childNodes)
+  }
+
+  const normalized = serializeNodes(root.childNodes)
+  return normalized
+    .replace(/(?:<p><br><\/p>){4,}/g, '<p><br></p><p><br></p><p><br></p>')
+    .trim()
+}
+
 export default function DescriptionEditor({
   value,
   draftValue,
@@ -116,12 +200,20 @@ export default function DescriptionEditor({
 
     editorRef.current.focus()
     document.execCommand(command)
-    onDraftChange(editorRef.current.innerHTML)
+    onDraftChange(sanitizeHtmlForStorage(editorRef.current.innerHTML))
+  }
+
+  const handleReadClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (target instanceof Element && target.closest('button')) {
+      return
+    }
+    onStartEdit()
   }
 
   if (isEditing) {
     return (
-      <div ref={containerRef} className="mt-2 w-full max-w-140 rounded-[10px] border border-[#ff0068] bg-[#242528]">
+      <div ref={containerRef} className="mt-2 w-full rounded-[10px] border border-[#ff0068] bg-[#242528]">
         <div className="flex flex-wrap items-center gap-1 border-b border-[#3f3f3f] px-3 py-2">
           <button
             type="button"
@@ -165,7 +257,16 @@ export default function DescriptionEditor({
           ref={editorRef}
           contentEditable
           suppressContentEditableWarning
-          onInput={(event) => onDraftChange((event.currentTarget as HTMLDivElement).innerHTML)}
+          onInput={(event) => onDraftChange(sanitizeHtmlForStorage((event.currentTarget as HTMLDivElement).innerHTML))}
+          onPaste={(event) => {
+            event.preventDefault()
+            const text = event.clipboardData.getData('text/plain')
+            const html = escapeHtml(text).replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll('\n', '<br>')
+            document.execCommand('insertHTML', false, html)
+            if (editorRef.current) {
+              onDraftChange(sanitizeHtmlForStorage(editorRef.current.innerHTML))
+            }
+          }}
           className="min-h-55 max-h-80 overflow-y-auto px-4 py-3 text-left text-[16px] leading-[1.55] text-[#d1d1d1] outline-none [direction:ltr] [unicode-bidi:plaintext] wrap-anywhere [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
           role="textbox"
           aria-label={'Editor de descri\u00e7\u00e3o'}
@@ -188,16 +289,10 @@ export default function DescriptionEditor({
 
   return (
     <div
-      className="mt-2 w-full max-w-140 rounded-[10px] border border-[#3f3f3f] bg-[#2b2c30] px-4 py-3"
+      className="mt-2 w-full cursor-text rounded-[10px] border border-[#3f3f3f] bg-[#2b2c30] px-4 py-3"
       role="button"
       tabIndex={0}
-      onClick={(event) => {
-        const target = event.target as HTMLElement
-        if (target.closest('button')) {
-          return
-        }
-        onStartEdit()
-      }}
+      onClick={handleReadClick}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()

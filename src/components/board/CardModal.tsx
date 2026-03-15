@@ -324,7 +324,7 @@ function ToolButton({
       }`}
     >
       {icon}
-      <span>{label}</span>
+      <span className="whitespace-nowrap">{label}</span>
     </button>
   )
 }
@@ -1085,9 +1085,9 @@ export default function CardModal({
                 isLinkTrigger
               />
               <ToolButton
-                label={linkCopied ? 'Link copiado' : 'Compartilhar card'}
+                label={linkCopied ? 'Link copiado' : 'Compartilhar'}
                 icon={<ShareIcon />}
-                width="w-[146px]"
+                width="w-[132px]"
                 onClick={() => {
                   void copyCardLink()
                 }}
