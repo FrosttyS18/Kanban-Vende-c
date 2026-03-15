@@ -543,7 +543,9 @@ export default function CardModal({
     }
 
     const nextActivityType = options?.activityType ?? 'system'
-    pushLocalActivity(normalizedMessage, nextActivityType)
+    if (nextActivityType === 'comment') {
+      pushLocalActivity(normalizedMessage, nextActivityType)
+    }
     onRecordActivity?.({
       eventType,
       message: normalizedMessage,
@@ -1008,7 +1010,16 @@ export default function CardModal({
             </div>
           </div>
 
-          <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10" aria-label="Fechar">
+          <button
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              onClose()
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10"
+            aria-label="Fechar"
+          >
             <CloseIcon />
           </button>
         </header>

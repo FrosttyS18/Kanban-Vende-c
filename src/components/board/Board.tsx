@@ -212,8 +212,11 @@ export default function Board({
   )
 
   const loadStore = useCallback(
-    async (preferredBoardId?: string, options?: { forceRefresh?: boolean }) => {
-      setIsLoadingStore(true)
+    async (preferredBoardId?: string, options?: { forceRefresh?: boolean; silent?: boolean }) => {
+      const shouldShowLoader = options?.silent !== true
+      if (shouldShowLoader) {
+        setIsLoadingStore(true)
+      }
       setStoreError(null)
       try {
         const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, options)
@@ -222,7 +225,9 @@ export default function Board({
         const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
         setStoreError(message)
       } finally {
-        setIsLoadingStore(false)
+        if (shouldShowLoader) {
+          setIsLoadingStore(false)
+        }
       }
     },
     [applyStore, selectedBoardId]
@@ -246,7 +251,7 @@ export default function Board({
       const message = error instanceof Error ? error.message : 'Nao foi possivel salvar as alteracoes.'
       console.error(`[board:${action}]`, error)
       showOperationError(message)
-      void loadStore(boardIdOverride ?? activeBoardId, { forceRefresh: true })
+      void loadStore(boardIdOverride ?? activeBoardId, { forceRefresh: true, silent: true })
     },
     [activeBoardId, loadStore, showOperationError]
   )
@@ -336,7 +341,7 @@ export default function Board({
         window.clearTimeout(realtimeReloadTimer.current)
       }
       realtimeReloadTimer.current = window.setTimeout(() => {
-        void loadStore(activeBoardId, { forceRefresh: true })
+        void loadStore(activeBoardId, { forceRefresh: true, silent: true })
       }, REALTIME_RELOAD_DEBOUNCE_MS)
     }, store.currentMemberId)
 
@@ -890,7 +895,7 @@ export default function Board({
     const { active, over } = event
     if (!over) {
       if (dragSnapshot) {
-        void loadStore(activeBoardId, { forceRefresh: true })
+        void loadStore(activeBoardId, { forceRefresh: true, silent: true })
       }
       return
     }
