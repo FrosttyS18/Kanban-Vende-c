@@ -959,12 +959,69 @@ export default function Board({
 
   if (store.boards.length === 0) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
-        <p className="text-sm text-[#d1d1d1]">Nenhum board encontrado.</p>
-        <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => setDismissedCreateSignal(createBoardSignal - 1)}>
-          Criar primeiro board
-        </Button>
-      </div>
+      <>
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
+          <p className="text-sm text-[#d1d1d1]">Nenhum board encontrado.</p>
+          <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => setDismissedCreateSignal(createBoardSignal - 1)}>
+            Criar primeiro board
+          </Button>
+        </div>
+
+        {isCreateBoardOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Criar novo board">
+            <div className="w-full max-w-141.25 rounded-2xl border border-white/10 bg-[#141414] p-5">
+              <h2 className="text-[26px] font-semibold leading-[1.15] text-white">Criar novo board</h2>
+              <p className="mt-1.5 text-[17px] text-[#d1d1d1]">Defina um nome para criar seu novo board!</p>
+              <Input
+                value={newBoardTitle}
+                onChange={(event) => setNewBoardTitle(event.target.value)}
+                className="mt-4 h-11 rounded-xl border border-primary bg-black px-3.5 text-[18px] font-semibold text-white placeholder:text-[#7d7d7d]"
+                placeholder="Nome do time/organizacao/area"
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    createBoard()
+                  }
+                }}
+              />
+              <div className="mt-4">
+                <p className="text-[13px] font-semibold text-[#d1d1d1]">Cor do board</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {BOARD_COLOR_OPTIONS.map((color) => {
+                    const selected = color === newBoardColor
+                    return (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewBoardColor(color)}
+                        aria-label={`Selecionar cor ${color}`}
+                        className={`size-7 rounded-full border-2 ${selected ? 'border-white' : 'border-transparent hover:border-white/40'}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2.5">
+                <Button
+                  variant="ghost"
+                  className="h-10 rounded-xl px-5 text-[17px] font-semibold text-[#d1d1d1] hover:bg-white/10"
+                  onClick={() => {
+                    setDismissedCreateSignal(createBoardSignal)
+                    setNewBoardTitle('')
+                    setNewBoardColor('#ff0068')
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={createBoard} className="h-10 rounded-xl bg-primary px-5 text-[17px] font-semibold text-white hover:bg-primary/90">
+                  Criar board
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     )
   }
 
