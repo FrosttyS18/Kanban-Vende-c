@@ -203,11 +203,12 @@ export default function DescriptionEditor({
     onDraftChange(sanitizeHtmlForStorage(editorRef.current.innerHTML))
   }
 
-  const handleReadClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleReadMouseDownCapture = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target
-    if (target instanceof Element && target.closest('button')) {
+    if (target instanceof Element && target.closest('[data-description-toggle="true"]')) {
       return
     }
+    event.preventDefault()
     onStartEdit()
   }
 
@@ -292,7 +293,7 @@ export default function DescriptionEditor({
       className="mt-2 w-full cursor-text rounded-[10px] border border-[#3f3f3f] bg-[#2b2c30] px-4 py-3"
       role="button"
       tabIndex={0}
-      onClick={handleReadClick}
+      onMouseDownCapture={handleReadMouseDownCapture}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
@@ -319,6 +320,7 @@ export default function DescriptionEditor({
                   event.stopPropagation()
                   setIsExpanded((prev) => !prev)
                 }}
+                data-description-toggle="true"
                 className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-[6px] bg-[#303134] px-4 text-sm font-semibold text-[#d1d1d1] hover:bg-[#3a3b3f]"
               >
                 <span>{isExpanded ? 'Mostrar menos' : 'Mostrar mais'}</span>
