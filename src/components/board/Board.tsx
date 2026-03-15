@@ -33,6 +33,7 @@ import {
   replaceBoardLabelsRemote,
   replaceBoardShareSettingsRemote,
   reorderListsRemote,
+  setLastBoardIdRemote,
   setStoredBoardId,
   subscribeBoardRealtime,
   syncCardsOrderingRemote,
@@ -45,7 +46,11 @@ type BoardProps = {
   createBoardSignal: number
   shareBoardSignal: number
   openCardRequest?: { boardId: string; cardId: string; token: number } | null
+  closeCardModalSignal?: number
   selectedBoardId?: string
+  onBoardCreated?: (boardId: string) => void
+  onCardOpen?: (boardId: string, cardId: string) => void
+  onCardClose?: (boardId: string) => void
   onBoardMetaChange?: (meta: {
     boards: BoardData[]
     currentBoardId: string
@@ -112,7 +117,11 @@ export default function Board({
   createBoardSignal,
   shareBoardSignal,
   openCardRequest,
+  closeCardModalSignal = 0,
   selectedBoardId,
+  onBoardCreated,
+  onCardOpen,
+  onCardClose,
   onBoardMetaChange
 }: BoardProps) {
   const [store, setStore] = useState<BoardStore>(EMPTY_STORE)
@@ -172,7 +181,11 @@ export default function Board({
 
   useEffect(() => {
     setStoredBoardId(activeBoardId)
-  }, [activeBoardId])
+    if (isLoadingStore) {
+      return
+    }
+    void setLastBoardIdRemote(activeBoardId || null).catch(() => undefined)
+  }, [activeBoardId, isLoadingStore])
 
   const profileNotifications = useMemo(
     () =>
@@ -250,7 +263,7 @@ export default function Board({
       realtimeReloadTimer.current = window.setTimeout(() => {
         void loadStore(activeBoardId)
       }, REALTIME_RELOAD_DEBOUNCE_MS)
-    })
+    }, store.currentMemberId)
 
     return () => {
       if (realtimeReloadTimer.current) {
@@ -259,7 +272,7 @@ export default function Board({
       }
       unsubscribe()
     }
-  }, [activeBoardId, loadStore])
+  }, [activeBoardId, loadStore, store.currentMemberId])
 
   const filteredCards = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1004,6 +1017,7 @@ export default function Board({
     setNewBoardTitle('')
     setNewBoardColor('#ff0068')
     setDismissedCreateSignal(createBoardSignal)
+    onBoardCreated?.(boardId)
   }
 
   if (isLoadingStore) {
@@ -1122,6 +1136,9 @@ export default function Board({
                   boardMembers={sharedBoardMembers}
                   currentMemberId={store.currentMemberId}
                   boardId={activeBoardId}
+                  closeCardModalSignal={closeCardModalSignal}
+                  onCardOpen={(cardId) => onCardOpen?.(activeBoardId, cardId)}
+                  onCardClose={() => onCardClose?.(activeBoardId)}
                   searchActive={searchQuery.trim().length > 0}
                 />
               ))}
@@ -1195,6 +1212,9 @@ export default function Board({
                 boardMembers={sharedBoardMembers}
                 currentMemberId={store.currentMemberId}
                 boardId={activeBoardId}
+                closeCardModalSignal={closeCardModalSignal}
+                onCardOpen={() => undefined}
+                onCardClose={() => undefined}
                 isOverlay
               />
             )}

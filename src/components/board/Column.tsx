@@ -25,6 +25,9 @@ type Props = {
   boardMembers: Member[]
   currentMemberId: string
   boardId: string
+  closeCardModalSignal?: number
+  onCardOpen: (cardId: string) => void
+  onCardClose: () => void
   searchActive?: boolean
   isOverlay?: boolean
 }
@@ -81,6 +84,9 @@ export default function Column({
   boardMembers,
   currentMemberId,
   boardId,
+  closeCardModalSignal,
+  onCardOpen,
+  onCardClose,
   searchActive = false,
   isOverlay = false
 }: Props) {
@@ -258,6 +264,9 @@ export default function Column({
               boardMembers={boardMembers}
               currentMemberId={currentMemberId}
               boardId={boardId}
+              closeModalSignal={closeCardModalSignal}
+              onOpenModal={onCardOpen}
+              onCloseModal={onCardClose}
               onUpdate={onUpdateCard}
               onDelete={onDeleteCard}
               onArchive={onArchiveCard}

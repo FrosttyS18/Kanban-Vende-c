@@ -388,8 +388,8 @@ export default function CardModal({
     }
 
     const url = new URL(window.location.href)
-    url.searchParams.set('board', boardId)
-    url.searchParams.set('card', cardState.id)
+    url.pathname = `/boards/${encodeURIComponent(boardId)}/cards/${encodeURIComponent(cardState.id)}`
+    url.search = ''
     url.hash = ''
 
     try {

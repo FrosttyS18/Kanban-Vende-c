@@ -124,6 +124,7 @@ type ProfileRow = {
   id: string
   email: string
   full_name: string | null
+  last_board_id?: string | null
 }
 
 const LEGACY_KEYS = ['kanban_vndc_store_v1', 'board_columns', 'board_cards', 'board_labels', 'archived_cards', 'kanban_vndc_store_v0']
@@ -197,6 +198,15 @@ export function clearLegacyBoardStorage(): void {
   LEGACY_KEYS.forEach((key) => localStorage.removeItem(key))
 }
 
+export async function setLastBoardIdRemote(boardId: string | null): Promise<void> {
+  const user = await getCurrentUser()
+  const nextBoardId = boardId?.trim() || null
+  const { error } = await supabase.from('profiles').update({ last_board_id: nextBoardId }).eq('id', user.id)
+  if (error) {
+    throw new Error(error.message)
+  }
+}
+
 async function getCurrentUser(): Promise<{ id: string; email: string; fullName: string | null; avatarUrl: string | null }> {
   const { data, error } = await supabase.auth.getUser()
   if (error || !data.user?.id || !data.user.email) {
@@ -212,7 +222,7 @@ async function getCurrentUser(): Promise<{ id: string; email: string; fullName: 
   }
 }
 
-async function ensureCurrentProfile(): Promise<{ id: string; email: string }> {
+async function ensureCurrentProfile(): Promise<{ id: string; email: string; lastBoardId: string | null }> {
   const user = await getCurrentUser()
   const payload = {
     id: user.id,
@@ -220,11 +230,16 @@ async function ensureCurrentProfile(): Promise<{ id: string; email: string }> {
     full_name: user.fullName,
     avatar_url: user.avatarUrl
   }
-  const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
+  const { data, error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' }).select('id,email,last_board_id').maybeSingle()
   if (error) {
     throw new Error(error.message)
   }
-  return { id: user.id, email: user.email }
+  const row = data as { id: string; email: string; last_board_id: string | null } | null
+  return {
+    id: user.id,
+    email: user.email,
+    lastBoardId: row?.last_board_id ?? null
+  }
 }
 
 function mapChecklistRows(checklists: ChecklistRow[], items: ChecklistItemRow[]): Checklist[] {
@@ -252,6 +267,7 @@ function mapChecklistRows(checklists: ChecklistRow[], items: ChecklistItemRow[])
 async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<BoardStore> {
   const currentUser = await ensureCurrentProfile()
   const currentUserId = currentUser.id
+  const profileLastBoardId = currentUser.lastBoardId?.trim() ?? ''
 
   const { data: ownedBoardsRaw, error: ownedBoardsError } = await supabase
     .from('boards')
@@ -315,11 +331,29 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
     return emptyStore
   }
 
+  const storedBoardId = getStoredBoardId()
+  const resolvedBoardId =
+    (selectedBoardId && boardIds.includes(selectedBoardId) && selectedBoardId) ||
+    (profileLastBoardId && boardIds.includes(profileLastBoardId) && profileLastBoardId) ||
+    (storedBoardId && boardIds.includes(storedBoardId) && storedBoardId) ||
+    boardIds[0] ||
+    ''
+
+  const detailBoardIds = resolvedBoardId ? [resolvedBoardId] : []
+
   const [boardMembersResult, boardShareLinksResult, listsResult, labelsResult, notificationsResult] = await Promise.all([
-    supabase.from('board_members').select('board_id,user_id,permission,created_at').in('board_id', boardIds),
-    supabase.from('board_share_links').select('board_id,token,is_active').in('board_id', boardIds),
-    supabase.from('lists').select('id,board_id,title,position').in('board_id', boardIds).order('position', { ascending: true }),
-    supabase.from('labels').select('id,board_id,text,color').in('board_id', boardIds),
+    detailBoardIds.length > 0
+      ? supabase.from('board_members').select('board_id,user_id,permission,created_at').in('board_id', detailBoardIds)
+      : Promise.resolve({ data: [], error: null as { message: string } | null }),
+    detailBoardIds.length > 0
+      ? supabase.from('board_share_links').select('board_id,token,is_active').in('board_id', detailBoardIds)
+      : Promise.resolve({ data: [], error: null as { message: string } | null }),
+    detailBoardIds.length > 0
+      ? supabase.from('lists').select('id,board_id,title,position').in('board_id', detailBoardIds).order('position', { ascending: true })
+      : Promise.resolve({ data: [], error: null as { message: string } | null }),
+    detailBoardIds.length > 0
+      ? supabase.from('labels').select('id,board_id,text,color').in('board_id', detailBoardIds)
+      : Promise.resolve({ data: [], error: null as { message: string } | null }),
     supabase.from('notifications').select('id,user_id,board_id,card_id,type,title,message,is_read,created_at').eq('user_id', currentUserId).order('created_at', { ascending: false }).limit(200)
   ])
 
@@ -418,9 +452,12 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
   const cardLinkRows = (cardLinksResult.data as CardLinkRow[] | null) ?? []
   const checklistItemRows = (checklistItemsResult.data as ChecklistItemRow[] | null) ?? []
   const cardActivityRows = (activitiesResult.data as CardActivityRow[] | null) ?? []
+  const resolvedBoardRow = boardRows.find((board) => board.id === resolvedBoardId) ?? null
 
   const profileIdSet = new Set<string>()
-  boardRows.forEach((board) => profileIdSet.add(board.owner_id))
+  if (resolvedBoardRow) {
+    profileIdSet.add(resolvedBoardRow.owner_id)
+  }
   boardMembersRows.forEach((row) => profileIdSet.add(row.user_id))
   cardMemberRows.forEach((row) => profileIdSet.add(row.user_id))
   cardActivityRows.forEach((row) => {
@@ -463,11 +500,9 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
     labelsByBoard[labelRow.board_id] = boardLabels
   })
 
-  boardIds.forEach((boardId) => {
-    if (!Array.isArray(labelsByBoard[boardId])) {
-      labelsByBoard[boardId] = []
-    }
-  })
+  if (resolvedBoardId && !Array.isArray(labelsByBoard[resolvedBoardId])) {
+    labelsByBoard[resolvedBoardId] = []
+  }
 
   const cardLabelsMap = new Map<string, Label[]>()
   cardLabelRows.forEach((row) => {
@@ -581,7 +616,8 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
   const boardShareByBoard = new Map(boardShareLinkRows.map((row) => [row.board_id, row]))
 
   const shareByBoard: Record<string, BoardShareSettings> = {}
-  boardRows.forEach((board) => {
+  if (resolvedBoardRow) {
+    const board = resolvedBoardRow
     const memberships = boardMembershipByBoard.get(board.id) ?? []
     const membersWithOwner = memberships.some((item) => item.user_id === board.owner_id)
       ? memberships
@@ -596,7 +632,7 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
         permission: item.permission
       }))
     }
-  })
+  }
 
   const boards: BoardData[] = boardRows.map((row) => ({
     id: row.id,
@@ -619,13 +655,6 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
     isRead: row.is_read
   }))
 
-  const storedBoardId = getStoredBoardId()
-  const resolvedBoardId =
-    (selectedBoardId && boards.some((board) => board.id === selectedBoardId) && selectedBoardId) ||
-    (storedBoardId && boards.some((board) => board.id === storedBoardId) && storedBoardId) ||
-    boards[0]?.id ||
-    ''
-
   setStoredBoardId(resolvedBoardId)
   clearLegacyBoardStorage()
 
@@ -645,8 +674,8 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
 }
 
 const BOARD_STORE_CACHE_TTL_MS = 5000
-let boardStoreCache: { key: string; expiresAt: number; value: BoardStore } | null = null
-let boardStoreInFlight: { key: string; promise: Promise<BoardStore> } | null = null
+const boardStoreCacheByKey = new Map<string, { expiresAt: number; value: BoardStore }>()
+const boardStoreInFlightByKey = new Map<string, Promise<BoardStore>>()
 
 function cloneBoardStore(store: BoardStore): BoardStore {
   return JSON.parse(JSON.stringify(store)) as BoardStore
@@ -657,38 +686,43 @@ function getStoreCacheKey(selectedBoardId?: string): string {
   return normalized ? `board:${normalized}` : 'board:auto'
 }
 
-function invalidateBoardStoreCache(): void {
-  boardStoreCache = null
+function invalidateBoardStoreCache(boardId?: string): void {
+  if (!boardId) {
+    boardStoreCacheByKey.clear()
+    return
+  }
+
+  boardStoreCacheByKey.delete(getStoreCacheKey(boardId))
+  boardStoreCacheByKey.delete(getStoreCacheKey())
 }
 
 export async function loadBoardStoreFromRemote(selectedBoardId?: string): Promise<BoardStore> {
   const cacheKey = getStoreCacheKey(selectedBoardId)
   const now = Date.now()
 
-  if (boardStoreCache && boardStoreCache.key === cacheKey && boardStoreCache.expiresAt > now) {
-    return cloneBoardStore(boardStoreCache.value)
+  const cachedEntry = boardStoreCacheByKey.get(cacheKey)
+  if (cachedEntry && cachedEntry.expiresAt > now) {
+    return cloneBoardStore(cachedEntry.value)
   }
 
-  if (boardStoreInFlight && boardStoreInFlight.key === cacheKey) {
-    const inFlightStore = await boardStoreInFlight.promise
+  const inFlightPromise = boardStoreInFlightByKey.get(cacheKey)
+  if (inFlightPromise) {
+    const inFlightStore = await inFlightPromise
     return cloneBoardStore(inFlightStore)
   }
 
   const promise = fetchBoardStoreFromRemote(selectedBoardId)
-  boardStoreInFlight = { key: cacheKey, promise }
+  boardStoreInFlightByKey.set(cacheKey, promise)
 
   try {
     const result = await promise
-    boardStoreCache = {
-      key: cacheKey,
+    boardStoreCacheByKey.set(cacheKey, {
       expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
       value: cloneBoardStore(result)
-    }
+    })
     return cloneBoardStore(result)
   } finally {
-    if (boardStoreInFlight?.promise === promise) {
-      boardStoreInFlight = null
-    }
+    boardStoreInFlightByKey.delete(cacheKey)
   }
 }
 
@@ -697,7 +731,7 @@ export async function updateBoardRemote(boardId: string, payload: { title: strin
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function reorderBoardsRemote(orderedBoardIds: string[]): Promise<void> {
@@ -793,23 +827,33 @@ export async function createListRemote(column: ColumnData): Promise<void> {
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(column.boardId)
 }
 
 export async function updateListRemote(columnId: string, payload: { title?: string; position?: number }): Promise<void> {
+  const { data: listRow, error: listLookupError } = await supabase.from('lists').select('board_id').eq('id', columnId).maybeSingle()
+  if (listLookupError) {
+    throw new Error(listLookupError.message)
+  }
+
   const { error } = await supabase.from('lists').update(payload).eq('id', columnId)
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache((listRow as { board_id?: string } | null)?.board_id)
 }
 
 export async function deleteListRemote(columnId: string): Promise<void> {
+  const { data: listRow, error: listLookupError } = await supabase.from('lists').select('board_id').eq('id', columnId).maybeSingle()
+  if (listLookupError) {
+    throw new Error(listLookupError.message)
+  }
+
   const { error } = await supabase.from('lists').delete().eq('id', columnId)
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache((listRow as { board_id?: string } | null)?.board_id)
 }
 
 export async function reorderListsRemote(columns: ColumnData[]): Promise<void> {
@@ -822,7 +866,7 @@ export async function reorderListsRemote(columns: ColumnData[]): Promise<void> {
   if (failed?.error) {
     throw new Error(failed.error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(columns[0]?.boardId)
 }
 
 async function replaceCardLabelsRemote(boardId: string, cardId: string, labels: Label[]): Promise<void> {
@@ -970,6 +1014,25 @@ async function replaceCardActivitiesRemote(cardId: string, activities: Activity[
   }
 }
 
+async function getBoardIdByCardId(cardId: string): Promise<string | undefined> {
+  const { data: cardRow, error: cardLookupError } = await supabase.from('cards').select('list_id').eq('id', cardId).maybeSingle()
+  if (cardLookupError) {
+    throw new Error(cardLookupError.message)
+  }
+
+  const listId = (cardRow as { list_id?: string } | null)?.list_id
+  if (!listId) {
+    return undefined
+  }
+
+  const { data: listRow, error: listLookupError } = await supabase.from('lists').select('board_id').eq('id', listId).maybeSingle()
+  if (listLookupError) {
+    throw new Error(listLookupError.message)
+  }
+
+  return (listRow as { board_id?: string } | null)?.board_id
+}
+
 export async function upsertCardRemote(boardId: string, card: CardData): Promise<void> {
   const { error } = await supabase.from('cards').upsert(
     {
@@ -994,7 +1057,7 @@ export async function upsertCardRemote(boardId: string, card: CardData): Promise
   await replaceCardLinksRemote(card.id, card.links)
   await replaceCardChecklistsRemote(card.id, card.checklists)
   await replaceCardActivitiesRemote(card.id, card.activities)
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function createCardRemote(boardId: string, card: CardData): Promise<void> {
@@ -1033,31 +1096,37 @@ export async function createCardRemote(boardId: string, card: CardData): Promise
   await replaceCardLinksRemote(card.id, card.links)
   await replaceCardChecklistsRemote(card.id, card.checklists)
   await replaceCardActivitiesRemote(card.id, card.activities)
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function deleteCardRemote(cardId: string): Promise<void> {
+  const boardId = await getBoardIdByCardId(cardId)
+
   const { error } = await supabase.from('cards').delete().eq('id', cardId)
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function archiveCardRemote(cardId: string): Promise<void> {
+  const boardId = await getBoardIdByCardId(cardId)
+
   const { error } = await supabase.from('cards').update({ archived_at: new Date().toISOString() }).eq('id', cardId)
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function restoreArchivedCardRemote(cardId: string): Promise<void> {
+  const boardId = await getBoardIdByCardId(cardId)
+
   const { error } = await supabase.from('cards').update({ archived_at: null }).eq('id', cardId)
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function replaceBoardLabelsRemote(boardId: string, labels: Label[]): Promise<void> {
@@ -1090,7 +1159,7 @@ export async function replaceBoardLabelsRemote(boardId: string, labels: Label[])
       throw new Error(deleteError.message)
     }
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function replaceBoardShareSettingsRemote(boardId: string, ownerMemberId: string, settings: BoardShareSettings): Promise<void> {
@@ -1150,7 +1219,7 @@ export async function replaceBoardShareSettingsRemote(boardId: string, ownerMemb
   if (upsertError) {
     throw new Error(upsertError.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function inviteMemberByEmailRemote(boardId: string, email: string, permission: SharePermission): Promise<{ ok: boolean; message?: string }> {
@@ -1183,7 +1252,7 @@ export async function inviteMemberByEmailRemote(boardId: string, email: string, 
     return { ok: false, message: upsertError.message }
   }
 
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
   return { ok: true }
 }
 
@@ -1203,7 +1272,7 @@ export async function syncCardsOrderingRemote(boardId: string, columns: ColumnDa
   if (failed?.error) {
     throw new Error(failed.error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(boardId)
 }
 
 export async function insertNotificationsRemote(notifications: MemberNotification[]): Promise<void> {
@@ -1232,7 +1301,7 @@ export async function insertNotificationsRemote(notifications: MemberNotificatio
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache()
+  invalidateBoardStoreCache(notifications[0]?.boardId)
 }
 
 export async function markNotificationsReadRemote(userId: string): Promise<void> {
@@ -1260,25 +1329,161 @@ export async function joinBoardViaTokenRemote(token: string): Promise<string> {
 
 type RealtimeCallback = () => void
 
-export function subscribeBoardRealtime(boardId: string, onChange: RealtimeCallback): () => void {
+type RealtimePayload = {
+  eventType?: string
+  new?: Record<string, unknown>
+  old?: Record<string, unknown>
+}
+
+function getPayloadString(payload: RealtimePayload, key: string): string | undefined {
+  const nextValue = payload.new?.[key]
+  if (typeof nextValue === 'string' && nextValue.length > 0) {
+    return nextValue
+  }
+
+  const previousValue = payload.old?.[key]
+  if (typeof previousValue === 'string' && previousValue.length > 0) {
+    return previousValue
+  }
+
+  return undefined
+}
+
+function syncScopedId(set: Set<string>, id: string | undefined, eventType: string | undefined): void {
+  if (!id) {
+    return
+  }
+  if (eventType === 'DELETE') {
+    set.delete(id)
+    return
+  }
+  set.add(id)
+}
+
+export function subscribeBoardRealtime(boardId: string, onChange: RealtimeCallback, currentUserId?: string): () => void {
   const channel = supabase.channel(`board-sync-${boardId}-${Date.now()}`)
+  const scopedListIds = new Set<string>()
+  const scopedCardIds = new Set<string>()
+  const scopedChecklistIds = new Set<string>()
+  let disposed = false
+
+  const seedScope = async () => {
+    const { data: listRows, error: listError } = await supabase.from('lists').select('id').eq('board_id', boardId)
+    if (disposed || listError) {
+      return
+    }
+
+    const listIds = ((listRows as Array<{ id: string }> | null) ?? []).map((row) => row.id)
+    listIds.forEach((id) => scopedListIds.add(id))
+    if (listIds.length === 0) {
+      return
+    }
+
+    const { data: cardRows, error: cardError } = await supabase.from('cards').select('id,list_id').in('list_id', listIds)
+    if (disposed || cardError) {
+      return
+    }
+
+    const cardIds = ((cardRows as Array<{ id: string; list_id: string }> | null) ?? [])
+      .filter((row) => scopedListIds.has(row.list_id))
+      .map((row) => row.id)
+    cardIds.forEach((id) => scopedCardIds.add(id))
+    if (cardIds.length === 0) {
+      return
+    }
+
+    const { data: checklistRows, error: checklistError } = await supabase.from('checklists').select('id,card_id').in('card_id', cardIds)
+    if (disposed || checklistError) {
+      return
+    }
+
+    ;((checklistRows as Array<{ id: string; card_id: string }> | null) ?? [])
+      .filter((row) => scopedCardIds.has(row.card_id))
+      .forEach((row) => scopedChecklistIds.add(row.id))
+  }
+
+  const isScopedCardEvent = (payload: RealtimePayload): boolean => {
+    const listId = getPayloadString(payload, 'list_id')
+    const cardId = getPayloadString(payload, 'id')
+    if (!listId || !scopedListIds.has(listId)) {
+      return false
+    }
+
+    syncScopedId(scopedCardIds, cardId, payload.eventType)
+    return true
+  }
+
+  const isScopedCardChildEvent = (payload: RealtimePayload, key: string = 'card_id'): boolean => {
+    const cardId = getPayloadString(payload, key)
+    return Boolean(cardId && scopedCardIds.has(cardId))
+  }
 
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'lists', filter: `board_id=eq.${boardId}` }, onChange)
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'lists', filter: `board_id=eq.${boardId}` }, (payload) => {
+    const typedPayload = payload as RealtimePayload
+    syncScopedId(scopedListIds, getPayloadString(typedPayload, 'id'), typedPayload.eventType)
+    onChange()
+  })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'labels', filter: `board_id=eq.${boardId}` }, onChange)
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_members', filter: `board_id=eq.${boardId}` }, onChange)
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_share_links', filter: `board_id=eq.${boardId}` }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_labels' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_members' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_links' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklists' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, onChange)
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, onChange)
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, (payload) => {
+    if (isScopedCardEvent(payload as RealtimePayload)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_labels' }, (payload) => {
+    if (isScopedCardChildEvent(payload as RealtimePayload)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_members' }, (payload) => {
+    if (isScopedCardChildEvent(payload as RealtimePayload)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_links' }, (payload) => {
+    if (isScopedCardChildEvent(payload as RealtimePayload)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_activities' }, (payload) => {
+    if (isScopedCardChildEvent(payload as RealtimePayload)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklists' }, (payload) => {
+    const typedPayload = payload as RealtimePayload
+    const checklistId = getPayloadString(typedPayload, 'id')
+    if (!isScopedCardChildEvent(typedPayload)) {
+      return
+    }
+    syncScopedId(scopedChecklistIds, checklistId, typedPayload.eventType)
+    onChange()
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, (payload) => {
+    const checklistId = getPayloadString(payload as RealtimePayload, 'checklist_id')
+    if (checklistId && scopedChecklistIds.has(checklistId)) {
+      onChange()
+    }
+  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
+    if (!currentUserId) {
+      onChange()
+      return
+    }
+
+    const userId = getPayloadString(payload as RealtimePayload, 'user_id')
+    if (userId === currentUserId) {
+      onChange()
+    }
+  })
 
   channel.subscribe()
+  void seedScope()
 
   return () => {
+    disposed = true
     void supabase.removeChannel(channel)
   }
 }

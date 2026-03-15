@@ -15,12 +15,16 @@ type ShareBoardModalProps = {
   onInviteByEmail: (email: string, permission: SharePermission) => { ok: boolean; message?: string }
 }
 
-function getShareLink(token: string): string {
+function getShareLink(boardId: string, token: string, allowLinkAccess: boolean): string {
+  const encodedBoardId = encodeURIComponent(boardId)
+  const path = `/boards/${encodedBoardId}`
+  const query = allowLinkAccess ? `?token=${encodeURIComponent(token)}` : ''
+
   if (typeof window === 'undefined') {
-    return `/shared/${token}`
+    return `${path}${query}`
   }
 
-  return `${window.location.origin}/shared/${token}`
+  return `${window.location.origin}${path}${query}`
 }
 
 function isValidEmail(value: string): boolean {
@@ -112,7 +116,7 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
   const [copied, setCopied] = useState(false)
   const [inviteError, setInviteError] = useState('')
 
-  const shareLink = getShareLink(shareSettings.linkToken)
+  const shareLink = getShareLink(board.id, shareSettings.linkToken, shareSettings.allowLinkAccess)
 
   if (!isOpen) {
     return null

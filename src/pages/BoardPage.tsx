@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 import Board from '@/components/board/Board'
@@ -11,53 +11,137 @@ interface BoardPageProps {
   isLogoutLoading?: boolean
 }
 
-function getCardOpenRequestFromUrl(): { boardId: string; cardId: string; token: number } | null {
+type UrlState =
+  | { kind: 'root' }
+  | { kind: 'shared'; token: string }
+  | { kind: 'board'; boardId: string; cardId: string | null; token: string | null }
+
+function parseUrlState(): UrlState {
   if (typeof window === 'undefined') {
-    return null
+    return { kind: 'root' }
+  }
+
+  const path = window.location.pathname
+  const sharedMatch = path.match(/^\/shared\/([^/]+)\/?$/)
+  if (sharedMatch?.[1]) {
+    return { kind: 'shared', token: decodeURIComponent(sharedMatch[1]) }
+  }
+
+  const boardMatch = path.match(/^\/boards\/([^/]+)(?:\/cards\/([^/]+))?\/?$/)
+  if (boardMatch?.[1]) {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')?.trim() ?? null
+    return {
+      kind: 'board',
+      boardId: decodeURIComponent(boardMatch[1]),
+      cardId: boardMatch[2] ? decodeURIComponent(boardMatch[2]) : null,
+      token: token || null
+    }
   }
 
   const params = new URLSearchParams(window.location.search)
-  const boardId = params.get('board')?.trim() ?? ''
-  const cardId = params.get('card')?.trim() ?? ''
-
-  if (!boardId || !cardId) {
-    return null
+  const legacyBoardId = params.get('board')?.trim() ?? ''
+  const legacyCardId = params.get('card')?.trim() ?? ''
+  if (legacyBoardId) {
+    return {
+      kind: 'board',
+      boardId: legacyBoardId,
+      cardId: legacyCardId || null,
+      token: null
+    }
   }
 
-  return { boardId, cardId, token: Date.now() }
+  return { kind: 'root' }
+}
+
+function buildBoardPath(boardId: string, cardId?: string | null): string {
+  const encodedBoardId = encodeURIComponent(boardId)
+  if (!cardId) {
+    return `/boards/${encodedBoardId}`
+  }
+  return `/boards/${encodedBoardId}/cards/${encodeURIComponent(cardId)}`
+}
+
+function buildBoardUrl(boardId: string, options?: { cardId?: string | null; token?: string | null }): string {
+  const path = buildBoardPath(boardId, options?.cardId ?? null)
+  const token = options?.token?.trim()
+  if (!token) {
+    return path
+  }
+  const params = new URLSearchParams()
+  params.set('token', token)
+  return `${path}?${params.toString()}`
+}
+
+function updateHistory(url: string, replace: boolean): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const current = `${window.location.pathname}${window.location.search}`
+  if (current === url) {
+    return
+  }
+  if (replace) {
+    window.history.replaceState({}, document.title, url)
+    return
+  }
+  window.history.pushState({}, document.title, url)
 }
 
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
+  const [urlState, setUrlState] = useState<UrlState>(() => parseUrlState())
   const [shareJoinError, setShareJoinError] = useState<string | null>(null)
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(() => {
-    if (typeof window === 'undefined') {
-      return null
+    const parsed = parseUrlState()
+    if (parsed.kind === 'shared') {
+      return parsed.token
     }
-    const match = window.location.pathname.match(/^\/shared\/([^/]+)$/)
-    return match?.[1] ? decodeURIComponent(match[1]) : null
+    if (parsed.kind === 'board') {
+      return parsed.token
+    }
+    return null
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [createBoardSignal, setCreateBoardSignal] = useState(0)
   const [shareBoardSignal, setShareBoardSignal] = useState(0)
   const [boards, setBoards] = useState<BoardData[]>([])
-  const [activeBoardId, setActiveBoardId] = useState('')
+  const [fallbackBoardId, setFallbackBoardId] = useState(() => (urlState.kind === 'board' ? urlState.boardId : ''))
   const [boardReloadKey, setBoardReloadKey] = useState(0)
   const [profileNotifications, setProfileNotifications] = useState<MemberNotification[]>([])
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
-  const [pendingCardOpenRequest, setPendingCardOpenRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(() => getCardOpenRequestFromUrl())
+  const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
+
+  const selectedBoardId = useMemo(() => {
+    if (urlState.kind === 'board') {
+      return urlState.boardId
+    }
+    return fallbackBoardId
+  }, [fallbackBoardId, urlState])
 
   const triggerCreateBoard = () => {
     setCreateBoardSignal((prev) => prev + 1)
   }
 
+  const navigateToBoard = useCallback((boardId: string, options?: { cardId?: string | null; token?: string | null; replace?: boolean }) => {
+    const nextState: UrlState = {
+      kind: 'board',
+      boardId,
+      cardId: options?.cardId ?? null,
+      token: options?.token?.trim() || null
+    }
+    setUrlState(nextState)
+    updateHistory(buildBoardUrl(boardId, { cardId: nextState.cardId, token: nextState.token }), options?.replace ?? false)
+  }, [])
+
   const handleSelectBoard = (boardId: string) => {
-    if (boardId === activeBoardId) {
+    if (boardId === selectedBoardId && urlState.kind === 'board' && !urlState.cardId) {
       return
     }
-    setActiveBoardId(boardId)
+    setFallbackBoardId(boardId)
     setBoardReloadKey((prev) => prev + 1)
+    navigateToBoard(boardId)
   }
 
   const renameBoard = async (boardId: string, title: string, color: string) => {
@@ -76,8 +160,15 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     }
     await deleteBoardRemote(boardId)
     const nextBoards = boards.filter((board) => board.id !== boardId)
+    const nextBoardId = nextBoards[0]?.id ?? ''
     setBoards(nextBoards)
-    setActiveBoardId((prev) => (prev === boardId ? nextBoards[0]?.id ?? '' : prev))
+    setFallbackBoardId(nextBoardId)
+    if (nextBoardId) {
+      navigateToBoard(nextBoardId, { replace: true })
+    } else {
+      setUrlState({ kind: 'root' })
+      updateHistory('/', true)
+    }
     setBoardReloadKey((prev) => prev + 1)
   }
 
@@ -88,6 +179,49 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     await reorderBoardsRemote(orderedBoardIds)
     setBoardReloadKey((prev) => prev + 1)
   }
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseUrlState()
+      setUrlState(parsed)
+      if (parsed.kind === 'shared') {
+        setPendingShareToken(parsed.token)
+      } else if (parsed.kind === 'board' && parsed.token) {
+        setPendingShareToken(parsed.token)
+      } else {
+        setPendingShareToken(null)
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (urlState.kind !== 'board') {
+      if (urlState.kind === 'root') {
+        updateHistory('/', true)
+      }
+      return
+    }
+
+    const expected = buildBoardUrl(urlState.boardId, { cardId: urlState.cardId, token: urlState.token })
+    updateHistory(expected, true)
+  }, [urlState])
+
+  useEffect(() => {
+    if (urlState.kind === 'board' && urlState.cardId) {
+      setOpenCardRequest({
+        boardId: urlState.boardId,
+        cardId: urlState.cardId,
+        token: Date.now()
+      })
+      return
+    }
+
+    setOpenCardRequest(null)
+    setCloseCardModalSignal((prev) => prev + 1)
+  }, [urlState])
 
   useEffect(() => {
     if (!pendingShareToken) {
@@ -102,17 +236,15 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         if (cancelled) {
           return
         }
-        setActiveBoardId(boardId)
+        setFallbackBoardId(boardId)
         setShareJoinError(null)
         setBoardReloadKey((prev) => prev + 1)
-        if (window.location.pathname.startsWith('/shared/')) {
-          window.history.replaceState({}, document.title, '/')
-        }
+        navigateToBoard(boardId, { replace: true })
       } catch (error) {
         if (cancelled) {
           return
         }
-        const message = error instanceof Error ? error.message : 'Não foi possível entrar no board pelo link.'
+        const message = error instanceof Error ? error.message : 'Nao foi possivel entrar no board pelo link.'
         setShareJoinError(message)
       } finally {
         if (!cancelled) {
@@ -126,26 +258,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     return () => {
       cancelled = true
     }
-  }, [pendingShareToken])
-
-  useEffect(() => {
-    if (!pendingCardOpenRequest) {
-      return
-    }
-
-    setActiveBoardId(pendingCardOpenRequest.boardId)
-    setOpenCardRequest(pendingCardOpenRequest)
-    setBoardReloadKey((prev) => prev + 1)
-
-    const params = new URLSearchParams(window.location.search)
-    params.delete('board')
-    params.delete('card')
-    const nextQuery = params.toString()
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`
-    window.history.replaceState({}, document.title, nextUrl)
-
-    setPendingCardOpenRequest(null)
-  }, [pendingCardOpenRequest])
+  }, [navigateToBoard, pendingShareToken])
 
   return (
     <div className="grid h-screen grid-cols-1 grid-rows-[70px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
@@ -158,8 +271,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           onSearchChange={setSearchQuery}
           onCreateBoard={triggerCreateBoard}
           onShareBoard={() => setShareBoardSignal((prev) => prev + 1)}
-          activeBoardTitle={boards.find((board) => board.id === activeBoardId)?.title}
-          activeBoardColor={boards.find((board) => board.id === activeBoardId)?.color}
+          activeBoardTitle={boards.find((board) => board.id === selectedBoardId)?.title}
+          activeBoardColor={boards.find((board) => board.id === selectedBoardId)?.color}
           notifications={profileNotifications}
           unreadNotificationsCount={unreadNotificationsCount}
           onMarkNotificationsRead={() => {
@@ -171,16 +284,16 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             setBoardReloadKey((prev) => prev + 1)
           }}
           onOpenNotification={(notification) => {
-            setActiveBoardId(notification.boardId)
+            setFallbackBoardId(notification.boardId)
             setBoardReloadKey((prev) => prev + 1)
-            setOpenCardRequest({ boardId: notification.boardId, cardId: notification.cardId, token: Date.now() })
+            navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
           }}
         />
       </div>
 
       <Sidebar
         boards={boards}
-        activeBoardId={activeBoardId}
+        activeBoardId={selectedBoardId}
         onCreateBoard={triggerCreateBoard}
         onSelectBoard={handleSelectBoard}
         onReorderBoards={reorderBoards}
@@ -200,13 +313,40 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           createBoardSignal={createBoardSignal}
           shareBoardSignal={shareBoardSignal}
           openCardRequest={openCardRequest}
-          selectedBoardId={activeBoardId}
+          closeCardModalSignal={closeCardModalSignal}
+          selectedBoardId={selectedBoardId}
+          onBoardCreated={(boardId) => {
+            setFallbackBoardId(boardId)
+            navigateToBoard(boardId)
+          }}
+          onCardOpen={(boardId, cardId) => {
+            navigateToBoard(boardId, { cardId })
+          }}
+          onCardClose={(boardId) => {
+            navigateToBoard(boardId, { replace: true })
+          }}
           onBoardMetaChange={(meta) => {
             setBoards(meta.boards)
-            setActiveBoardId(meta.currentBoardId)
+            setFallbackBoardId(meta.currentBoardId)
             setCurrentMemberId(meta.currentMemberId)
             setProfileNotifications(meta.notifications)
             setUnreadNotificationsCount(meta.unreadNotificationsCount)
+
+            if (!meta.currentBoardId) {
+              return
+            }
+
+            if (urlState.kind === 'root') {
+              navigateToBoard(meta.currentBoardId, { replace: true })
+              return
+            }
+
+            if (urlState.kind === 'board') {
+              const boardExists = meta.boards.some((board) => board.id === urlState.boardId)
+              if (!boardExists) {
+                navigateToBoard(meta.currentBoardId, { replace: true })
+              }
+            }
           }}
         />
       </main>
