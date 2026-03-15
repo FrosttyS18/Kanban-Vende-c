@@ -116,7 +116,6 @@ export function useAuthSession() {
 
   useEffect(() => {
     let mounted = true
-    clearAuthHashFromUrl()
 
     const syncRateLimitStatus = async () => {
       const latestStatus = await getLoginRateLimitStatus()
