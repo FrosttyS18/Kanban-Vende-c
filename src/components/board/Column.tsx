@@ -27,6 +27,7 @@ type Props = {
   boardId: string
   onRecordActivity: (cardId: string, input: Omit<RecordCardActivityInput, 'cardId'>) => void
   closeCardModalSignal?: number
+  openCardRequest?: { boardId: string; cardId: string; token: number } | null
   onCardOpen: (cardId: string) => void
   onCardClose: () => void
   searchActive?: boolean
@@ -88,6 +89,7 @@ export default function Column({
   boardId,
   onRecordActivity,
   closeCardModalSignal,
+  openCardRequest,
   onCardOpen,
   onCardClose,
   searchActive = false,
@@ -270,6 +272,7 @@ export default function Column({
               boardId={boardId}
               onRecordActivity={onRecordActivity}
               closeModalSignal={closeCardModalSignal}
+              openCardRequest={openCardRequest}
               onOpenModal={onCardOpen}
               onCloseModal={onCardClose}
               onUpdate={onUpdateCard}

@@ -17,6 +17,7 @@ type CardProps = {
   boardId: string
   onRecordActivity?: (cardId: string, input: Omit<RecordCardActivityInput, 'cardId'>) => void
   closeModalSignal?: number
+  openCardRequest?: { boardId: string; cardId: string; token: number } | null
   onOpenModal?: (cardId: string) => void
   onCloseModal?: (cardId: string) => void
   onDelete?: (id: string) => void
@@ -125,6 +126,7 @@ export default function Card({
   boardId,
   onRecordActivity,
   closeModalSignal,
+  openCardRequest,
   onOpenModal,
   onCloseModal,
   onDelete,
@@ -137,6 +139,7 @@ export default function Card({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalOpenAtSignal, setModalOpenAtSignal] = useState(closeModalSignal ?? 0)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [blockedRouteToken, setBlockedRouteToken] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
@@ -177,7 +180,10 @@ export default function Card({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const isModalVisible = isModalOpen && (closeModalSignal === undefined || modalOpenAtSignal === closeModalSignal)
+  const routeOpenToken = openCardRequest?.cardId === card.id ? openCardRequest.token : null
+  const isRouteRequestOpen = !disableModal && !isOverlay && routeOpenToken !== null && blockedRouteToken !== routeOpenToken
+  const isSignalMatching = closeModalSignal === undefined || modalOpenAtSignal === closeModalSignal
+  const isModalVisible = (isModalOpen && isSignalMatching) || isRouteRequestOpen
 
   if (isDragging) {
     return <div ref={setNodeRef} style={style} className="h-32.25 rounded-[9px] bg-[#242528]/50" />
@@ -202,6 +208,7 @@ export default function Card({
           if (disableModal || isOverlay) {
             return
           }
+          setBlockedRouteToken(null)
           setIsModalOpen(true)
           setModalOpenAtSignal(closeModalSignal ?? 0)
           onOpenModal?.(card.id)
@@ -279,9 +286,12 @@ export default function Card({
 
       {isModalVisible && !isOverlay && !disableModal && (
         <CardModal
-          isOpen={isModalOpen}
+          isOpen={isModalOpen || isRouteRequestOpen}
           onClose={() => {
             setIsModalOpen(false)
+            if (routeOpenToken !== null) {
+              setBlockedRouteToken(routeOpenToken)
+            }
             onCloseModal?.(card.id)
           }}
           card={card}

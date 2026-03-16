@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 import Board from '@/components/board/Board'
@@ -111,6 +111,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
+  const lastOpenCardKeyRef = useRef<string>('')
 
   const selectedBoardId = useMemo(() => {
     if (urlState.kind === 'board') {
@@ -221,6 +222,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
 
   useEffect(() => {
     if (urlState.kind === 'board' && urlState.cardId) {
+      const nextOpenCardKey = `${urlState.boardId}:${urlState.cardId}`
+      if (lastOpenCardKeyRef.current === nextOpenCardKey) {
+        return
+      }
+      lastOpenCardKeyRef.current = nextOpenCardKey
       setOpenCardRequest({
         boardId: urlState.boardId,
         cardId: urlState.cardId,
@@ -229,8 +235,12 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       return
     }
 
+    const hadOpenCard = lastOpenCardKeyRef.current !== ''
+    lastOpenCardKeyRef.current = ''
     setOpenCardRequest(null)
-    setCloseCardModalSignal((prev) => prev + 1)
+    if (hadOpenCard) {
+      setCloseCardModalSignal((prev) => prev + 1)
+    }
   }, [urlState])
 
   useEffect(() => {
@@ -290,12 +300,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
               return
             }
             void markNotificationsReadRemote(currentMemberId)
+            setProfileNotifications((prev) => prev.map((notification) => ({ ...notification, isRead: true })))
             setUnreadNotificationsCount(0)
-            setBoardReloadKey((prev) => prev + 1)
           }}
           onOpenNotification={(notification) => {
             setFallbackBoardId(notification.boardId)
-            setBoardReloadKey((prev) => prev + 1)
             navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
           }}
         />

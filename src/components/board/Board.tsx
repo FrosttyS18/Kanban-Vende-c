@@ -342,25 +342,6 @@ export default function Board({
   )
 
   useEffect(() => {
-    if (!openCardRequest || openCardRequest.boardId !== activeBoardId) {
-      return
-    }
-
-    const targetCard = currentCards.find((card) => card.id === openCardRequest.cardId)
-    if (!targetCard) {
-      return
-    }
-
-    const timerId = window.setTimeout(() => {
-      const targetElement = document.getElementById(`card-${openCardRequest.cardId}`)
-      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      targetElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    }, 80)
-
-    return () => window.clearTimeout(timerId)
-  }, [activeBoardId, currentCards, openCardRequest])
-
-  useEffect(() => {
     if (!activeBoardId) {
       return
     }
@@ -1251,6 +1232,7 @@ export default function Board({
                   boardId={activeBoardId}
                   onRecordActivity={handleRecordCardActivity}
                   closeCardModalSignal={closeCardModalSignal}
+                  openCardRequest={openCardRequest}
                   onCardOpen={(cardId) => onCardOpen?.(activeBoardId, cardId)}
                   onCardClose={() => onCardClose?.(activeBoardId)}
                   searchActive={searchQuery.trim().length > 0}
