@@ -83,6 +83,7 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
   const [titleDraft, setTitleDraft] = useState('')
   const [colorDraft, setColorDraft] = useState(BOARD_COLOR_OPTIONS[0])
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null)
+  const [isSettingsNoticeOpen, setIsSettingsNoticeOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -178,6 +179,7 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
       <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
         <button
           type="button"
+          onClick={() => setIsSettingsNoticeOpen(true)}
           className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
           aria-label="Configurações"
         >
@@ -341,6 +343,24 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
                 className="h-9 rounded-[7px] bg-[#aa003f] px-4 text-sm font-semibold text-white hover:bg-[#c2004a]"
               >
                 Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSettingsNoticeOpen && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Aviso de configurações">
+          <div className="w-full max-w-96 rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+            <h2 className="text-lg font-semibold text-white">Configurações</h2>
+            <p className="mt-2 text-sm text-[#d1d1d1]">novas funções em breve</p>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsSettingsNoticeOpen(false)}
+                className="h-9 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
+              >
+                Fechar
               </button>
             </div>
           </div>
