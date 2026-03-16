@@ -1,4 +1,4 @@
-import { createPortal } from 'react-dom'
+﻿import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef } from 'react'
 import { Calendar, Clock3 } from 'lucide-react'
 
@@ -108,7 +108,7 @@ export default function DatePopover({
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
       className="fixed z-75 rounded-[10px] border border-[#3f3f3f] bg-[#2a2b2f] p-3 shadow-2xl"
       role="dialog"
-      aria-label={'Configura\u00e7\u00e3o de data de entrega'}
+      aria-label={'Configuração de data de entrega'}
     >
       <div className="flex items-center justify-between">
         <h4 className="text-[16px] font-semibold text-[#d1d1d1]">Datas</h4>
@@ -154,4 +154,5 @@ export default function DatePopover({
     document.body
   )
 }
+
 

@@ -293,7 +293,7 @@ export default function Column({
         <footer className="px-4 pb-4 pt-2">
           <Button onClick={() => setAddingCardMode('bottom')} variant="ghost" className="h-5.5 w-full justify-start p-0 text-[14px] font-medium text-[#d1d1d1] hover:bg-transparent hover:text-white">
             <Plus className="mr-2 size-4" />
-            Adicionar um cartao
+            Adicionar um cartão
           </Button>
         </footer>
       )}

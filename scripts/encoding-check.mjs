@@ -1,28 +1,23 @@
-import fs from 'node:fs'
+﻿import fs from 'node:fs'
 import path from 'node:path'
 
 const SOURCE_DIR = path.resolve(process.cwd(), 'src')
 const VALID_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.json'])
-const MOJIBAKE_PATTERN = /(Ãƒ[\u0080-\u00BFA-Za-z]|Ã¯Â¿Â½|Ã¢â‚¬â„¢|Ã¢â‚¬Å“|Ã¢â‚¬\u009d|Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃŒÂ|\uFFFD)/u
-const MOJIBAKE_SNIPPETS = [
-  'NÃ£o',
-  'nÃ£o',
-  'possÃ­vel',
-  'cartÃ£o',
-  'descriÃ§Ã£o',
-  'organizaÃ§Ã£o',
-  'VocÃª',
-  'vocÃª',
-  'UsuÃ¡rio',
-  'ediÃ§Ã£o',
-  'comentÃ¡rio',
-  'Ã¡',
-  'Ã©',
-  'Ãª',
-  'Ã£',
-  'Ã§',
-  'ï¿½',
-  'Ì'
+const MOJIBAKE_PATTERN = /(Ã.|Â.|â€|ï¿½|\uFFFD|Ì)/u
+const ESCAPED_UNICODE_PATTERN = /\\u[0-9A-Fa-f]{4}/u
+const BAD_SNIPPETS = [
+  'NÃƒÂ£o',
+  'nÃƒÂ£o',
+  'possÃƒÂ­vel',
+  'cartÃƒÂ£o',
+  'descriÃƒÂ§ÃƒÂ£o',
+  'organizaÃƒÂ§ÃƒÂ£o',
+  'VocÃƒÂª',
+  'vocÃƒÂª',
+  'UsuÃƒÂ¡rio',
+  'ediÃƒÂ§ÃƒÂ£o',
+  'comentÃƒÂ¡rio',
+  'concluï¿½do'
 ]
 const IGNORED_FILES = new Set([path.join(SOURCE_DIR, 'utils', 'normalizeMojibake.ts')])
 
@@ -37,10 +32,8 @@ function collectFiles(directory) {
       continue
     }
 
-    if (VALID_EXTENSIONS.has(path.extname(entry.name))) {
-      if (!IGNORED_FILES.has(fullPath)) {
-        files.push(fullPath)
-      }
+    if (VALID_EXTENSIONS.has(path.extname(entry.name)) && !IGNORED_FILES.has(fullPath)) {
+      files.push(fullPath)
     }
   }
 
@@ -54,11 +47,15 @@ function scanFile(filePath) {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    if (MOJIBAKE_PATTERN.test(line) || MOJIBAKE_SNIPPETS.some((snippet) => line.includes(snippet))) {
+    const hasMojibake = MOJIBAKE_PATTERN.test(line) || BAD_SNIPPETS.some((snippet) => line.includes(snippet))
+    const hasEscapedUnicode = ESCAPED_UNICODE_PATTERN.test(line)
+
+    if (hasMojibake || hasEscapedUnicode) {
       findings.push({
         filePath,
         lineNumber: index + 1,
-        line: line.trim()
+        line: line.trim(),
+        reason: hasEscapedUnicode ? 'escaped-unicode' : 'mojibake'
       })
     }
   }
@@ -75,9 +72,9 @@ const sourceFiles = collectFiles(SOURCE_DIR)
 const findings = sourceFiles.flatMap((filePath) => scanFile(filePath))
 
 if (findings.length > 0) {
-  console.error('[encoding:check] Mojibake detectado. Corrija antes de continuar.')
+  console.error('[encoding:check] Texto inválido detectado. Corrija antes de continuar.')
   findings.forEach((finding) => {
-    console.error(`- ${finding.filePath}:${finding.lineNumber} -> ${finding.line}`)
+    console.error(`- [${finding.reason}] ${finding.filePath}:${finding.lineNumber} -> ${finding.line}`)
   })
   process.exit(1)
 }

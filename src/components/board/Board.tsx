@@ -1232,7 +1232,7 @@ export default function Board({
                   className="h-11 w-full justify-start rounded-2xl bg-[#3f3f3f] px-4 text-[14px] font-medium text-[#d1d1d1] hover:bg-[#4a4a4a]"
                 >
                   <Plus className="mr-2 size-4" />
-                  Adicionar um cart\u00e3o
+                  Adicionar nova Lista
                 </Button>
               ) : (
                 <div className="space-y-2 rounded-2xl border border-white/10 bg-[#101204] p-3">
@@ -1331,7 +1331,7 @@ export default function Board({
               value={newBoardTitle}
               onChange={(event) => setNewBoardTitle(event.target.value)}
               className="mt-4 h-11 rounded-xl border border-primary bg-black px-3.5 text-[18px] font-semibold text-white placeholder:text-[#7d7d7d]"
-              placeholder="Nome do time/organiza\u00e7\u00e3o/\u00e1rea"
+              placeholder="Nome do time/organização/área"
               autoFocus
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -1392,5 +1392,6 @@ export default function Board({
     </div>
   )
 }
+
 
 

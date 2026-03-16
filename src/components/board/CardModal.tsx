@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link2, MessageSquareText } from 'lucide-react'
 import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
@@ -81,7 +81,7 @@ function getDueStatus(dueDate?: string, isCompleted?: boolean): { label: string;
   }
 
   if (isCompleted) {
-    return { label: 'Conclu\u00eddo', className: 'bg-[#00ff73] text-[#242528]' }
+    return { label: 'Concluído', className: 'bg-[#00ff73] text-[#242528]' }
   }
 
   const now = new Date()
@@ -128,7 +128,7 @@ function formatAttachmentMeta(createdAt: string): string {
     hour: '2-digit',
     minute: '2-digit'
   })
-  return `Adicionado h\u00e1 ${relativeTimeFromNow(createdAt)}; ${absolute}`
+  return `Adicionado há ${relativeTimeFromNow(createdAt)}; ${absolute}`
 }
 
 function validateUrl(url: string): boolean {
@@ -612,7 +612,7 @@ export default function CardModal({
     }
 
     if (nextTitle !== cardState.title) {
-      updateCardWithActivity({ title: nextTitle }, 'card_renamed', `renomeou o cartão para ${nextTitle}`)
+        updateCardWithActivity({ title: nextTitle }, 'card_renamed', `renomeou o cartão para ${nextTitle}`)
     }
     setIsTitleEditing(false)
   }
@@ -656,7 +656,7 @@ export default function CardModal({
     const listName = listOptions.find((option) => option.id === listId)?.title ?? 'Lista'
     onMoveToList(listId)
     setCardState((prev) => ({ ...prev, listId, updatedAt: new Date().toISOString() }))
-    recordActivity('card_moved', `moveu o cartão para ${listName}`, { dedupeWindowMinutes: 10 })
+      recordActivity('card_moved', `moveu o cartão para ${listName}`, { dedupeWindowMinutes: 10 })
     setIsListMenuOpen(false)
   }
 
@@ -884,12 +884,12 @@ export default function CardModal({
     const url = linkDraft.url.trim()
 
     if (!title || !url) {
-      setLinkError('Preencha t\u00edtulo e URL.')
+      setLinkError('Preencha título e URL.')
       return
     }
 
     if (!validateUrl(url)) {
-      setLinkError('URL inv\u00e1lida.')
+      setLinkError('URL inválida.')
       return
     }
 
@@ -959,11 +959,11 @@ export default function CardModal({
   const timeline = cardState.activities.length
     ? cardState.activities
     : actor
-      ? [{ id: 'default-system', type: 'system' as const, actorId: actor.id, actorName: actor.name, actorInitials: actor.initials, message: `adicionou este cart\u00e3o a ${currentList}.`, createdAt: cardState.createdAt }]
+      ? [{ id: 'default-system', type: 'system' as const, actorId: actor.id, actorName: actor.name, actorInitials: actor.initials, message: `adicionou este cartão a ${currentList}.`, createdAt: cardState.createdAt }]
       : []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cart\u00e3o'}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cartão'}>
       <div className="h-164.25 w-270.5 max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#585353] bg-[#242528]">
         <header className="flex h-14.75 items-center justify-between border-b border-[#585353] bg-[#242528] px-6.5">
           <div className="flex items-center gap-2">
@@ -1024,7 +1024,7 @@ export default function CardModal({
                 type="button"
                 onClick={() => updateCard({ isCompleted: !cardState.isCompleted })}
                 className="mt-1 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={cardState.isCompleted ? 'Marcar como pendente' : 'Marcar como conclu\u00eddo'}
+                aria-label={cardState.isCompleted ? 'Marcar como pendente' : 'Marcar como concluído'}
               >
                 <CompletionIcon completed={cardState.isCompleted} />
               </button>
@@ -1151,7 +1151,7 @@ export default function CardModal({
                   onClick={() => updateCard({ isCompleted: !cardState.isCompleted })}
                   className="rounded-[6px] border border-[#525252] px-3 py-2 text-left text-[13px] font-semibold text-[#d1d1d1] hover:bg-[#3a3b3f]"
                 >
-                  {cardState.isCompleted ? 'Marcar pendente' : 'Marcar conclu\u00eddo'}
+                  {cardState.isCompleted ? 'Marcar pendente' : 'Marcar concluído'}
                 </button>
               </div>
             )}
@@ -1248,7 +1248,7 @@ export default function CardModal({
             )}
 
             <div ref={descriptionSectionRef} className="mt-4">
-              <h3 className="text-[13.101px] font-semibold text-[#d1d1d1]">{'Descri\u00e7\u00e3o'}</h3>
+              <h3 className="text-[13.101px] font-semibold text-[#d1d1d1]">{'Descrição'}</h3>
               <DescriptionEditor
                 value={cardState.description}
                 draftValue={descriptionDraft}
@@ -1384,7 +1384,7 @@ export default function CardModal({
                   <input
                     value={linkDraft.title}
                     onChange={(event) => setLinkDraft((prev) => ({ ...prev, title: event.target.value }))}
-                    placeholder={'T\u00edtulo do link'}
+                    placeholder={'Título do link'}
                     className="h-9 rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] placeholder:text-[#7d7d7d] outline-none focus:border-[#ff0068]"
                   />
                   <select
@@ -1406,7 +1406,7 @@ export default function CardModal({
                 {linkError && <p className="mt-1 text-xs text-[#da7e77]">{linkError}</p>}
                 <div className="mt-2 flex gap-2">
                   <button type="button" onClick={submitLink} className="h-8 rounded-[6px] bg-[#ff0068] px-3 text-xs font-semibold text-white">
-                    {linkDraft.id ? 'Salvar edi\u00e7\u00e3o' : 'Salvar link'}
+                    {linkDraft.id ? 'Salvar edição' : 'Salvar link'}
                   </button>
                   <button
                     type="button"
@@ -1426,7 +1426,7 @@ export default function CardModal({
           </section>
 
           <aside className="custom-scrollbar overflow-y-auto border-t border-[#2f3033] bg-[#18191a] px-4 py-5 lg:border-l lg:border-t-0 lg:px-4 lg:py-5.25">
-            <h3 className="text-[16px] font-bold text-[#d1d1d1]">{'Coment\u00e1rios e atividades'}</h3>
+            <h3 className="text-[16px] font-bold text-[#d1d1d1]">{'Comentários e atividades'}</h3>
             <div className="mt-2 rounded-[7px] bg-[#303134] px-2">
               <input
                 value={commentText}
@@ -1437,7 +1437,7 @@ export default function CardModal({
                     saveComment()
                   }
                 }}
-                placeholder={'Escrever um coment\u00e1rio...'}
+                placeholder={'Escrever um comentário...'}
                 maxLength={COMMENT_MAX_LENGTH}
                 className="h-8.25 w-full bg-transparent text-[12px] text-[#d1d1d1] placeholder:text-[#5b5858] outline-none"
               />
@@ -1467,7 +1467,7 @@ export default function CardModal({
                       </p>
                     )}
                     <p className="mt-1 text-[10px] text-[#d1d1d1]">
-                      {'adicionado h\u00e1 '}<span className="text-[#ff0068]">{relativeTimeFromNow(activity.createdAt)}</span>{' atr\u00e1s.'}
+                      {'adicionado há '}<span className="text-[#ff0068]">{relativeTimeFromNow(activity.createdAt)}</span>{' atrás.'}
                     </p>
                   </div>
                 </article>
@@ -1479,4 +1479,5 @@ export default function CardModal({
     </div>
   )
 }
+
 
