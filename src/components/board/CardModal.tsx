@@ -1,4 +1,4 @@
-﻿import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link2, MessageSquareText } from 'lucide-react'
 import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
@@ -656,7 +656,7 @@ export default function CardModal({
     const listName = listOptions.find((option) => option.id === listId)?.title ?? 'Lista'
     onMoveToList(listId)
     setCardState((prev) => ({ ...prev, listId, updatedAt: new Date().toISOString() }))
-      recordActivity('card_moved', `moveu o cartão para ${listName}`, { dedupeWindowMinutes: 10 })
+    recordActivity('card_moved', `moveu o cartão para ${listName}`, { dedupeWindowMinutes: 10 })
     setIsListMenuOpen(false)
   }
 
@@ -1457,7 +1457,7 @@ export default function CardModal({
                       <>
                         <p className="flex items-center gap-1 text-[16px] leading-tight text-[#d1d1d1]">
                           <MessageSquareText className="size-3.5 shrink-0 text-[#9f9f9f]" />
-                          <span className="font-bold">{activity.actorName}</span>: Deixou um novo comentario.
+                          <span className="font-bold">{activity.actorName}</span>: Deixou um novo comentário.
                         </p>
                         <p className="mt-1 whitespace-pre-wrap wrap-break-word text-[15px] font-normal leading-[1.35] text-[#d1d1d1]">{normalizeMojibake(activity.message)}</p>
                       </>

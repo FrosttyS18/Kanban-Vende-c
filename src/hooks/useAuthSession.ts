@@ -55,13 +55,12 @@ function clearAuthHashFromUrl(): void {
   window.history.replaceState({}, document.title, cleanUrl)
 }
 
-function normalizeLoggedOutRoute(): void {
+function normalizeRouteToRoot(): void {
   if (typeof window === "undefined") {
     return
   }
 
-  const isBoardRoute = window.location.pathname.startsWith("/boards/")
-  if (!isBoardRoute) {
+  if (window.location.pathname === "/" && !window.location.search && !window.location.hash) {
     return
   }
 
@@ -91,7 +90,6 @@ export function useAuthSession() {
   const applySession = useCallback(
     async (nextSession: Session | null) => {
       if (!nextSession?.user) {
-        normalizeLoggedOutRoute()
         setSession(null)
         return
       }
@@ -101,7 +99,7 @@ export function useAuthSession() {
         applyRateLimit(status)
         await signOut()
         setSession(null)
-        setError(`Acesso restrito ao dominio @${allowedDomain}.`)
+        setError(`Acesso restrito ao domínio @${allowedDomain}.`)
         return
       }
 
@@ -180,7 +178,8 @@ export function useAuthSession() {
     setError(null)
 
     try {
-      const result = await signInWithGoogle()
+      const redirectPath = `${window.location.pathname}${window.location.search}` || "/"
+      const result = await signInWithGoogle(redirectPath)
       if (result.error) {
         const nextStatus = await registerFailedLoginAttempt()
         setRateLimitStatus(nextStatus)
@@ -198,7 +197,7 @@ export function useAuthSession() {
   const logout = useCallback(async () => {
     setActionLoading(true)
     await signOut()
-    normalizeLoggedOutRoute()
+    normalizeRouteToRoot()
     setSession(null)
     setActionLoading(false)
   }, [])

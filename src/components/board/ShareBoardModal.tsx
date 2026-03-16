@@ -16,15 +16,15 @@ type ShareBoardModalProps = {
 }
 
 function getShareLink(boardId: string, token: string, allowLinkAccess: boolean): string {
-  const encodedBoardId = encodeURIComponent(boardId)
-  const path = `/boards/${encodedBoardId}`
-  const query = allowLinkAccess ? `?token=${encodeURIComponent(token)}` : ''
+  const path = allowLinkAccess
+    ? `/shared/${encodeURIComponent(token)}`
+    : `/boards/${encodeURIComponent(boardId)}`
 
   if (typeof window === 'undefined') {
-    return `${path}${query}`
+    return path
   }
 
-  return `${window.location.origin}${path}${query}`
+  return `${window.location.origin}${path}`
 }
 
 function isValidEmail(value: string): boolean {

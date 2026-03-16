@@ -231,7 +231,7 @@ export default function Card({
                 onUpdate?.(card.id, { isCompleted: !card.isCompleted })
               }}
               className="mt-0.5 shrink-0 text-[#d1d1d1] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={card.isCompleted ? 'Marcar como pendente' : 'Marcar como concluido'}
+              aria-label={card.isCompleted ? 'Marcar como pendente' : 'Marcar como concluído'}
             >
               <CompletionIcon completed={card.isCompleted} />
             </button>
@@ -337,7 +337,7 @@ export default function Card({
               {!onDelete && !onArchive && (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
                   <User className="size-3" />
-                  Sem acoes disponiveis
+                  Sem ações disponíveis
                 </div>
               )}
             </div>

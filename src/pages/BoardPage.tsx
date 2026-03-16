@@ -10,7 +10,6 @@ interface BoardPageProps {
   onLogout?: () => void
   isLogoutLoading?: boolean
 }
-
 type UrlState =
   | { kind: 'root' }
   | { kind: 'shared'; token: string }
@@ -127,6 +126,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const handleLogout = useCallback(() => {
     setUrlState({ kind: 'root' })
     setFallbackBoardId('')
+    setPendingShareToken(null)
+    setShareJoinError(null)
     setOpenCardRequest(null)
     setCloseCardModalSignal((prev) => prev + 1)
     updateHistory('/', true)
@@ -362,3 +363,4 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     </div>
   )
 }
+

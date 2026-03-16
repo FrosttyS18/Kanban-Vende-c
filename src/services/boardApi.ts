@@ -1017,6 +1017,43 @@ async function getBoardIdByCardId(cardId: string): Promise<string | undefined> {
   return (listRow as { board_id?: string } | null)?.board_id
 }
 
+export async function updateCardFieldsRemote(
+  cardId: string,
+  updates: Partial<Pick<CardData, 'title' | 'description' | 'dueDate' | 'isCompleted' | 'listId' | 'updatedAt'>>
+): Promise<void> {
+  const payload: Record<string, unknown> = {}
+
+  if ('title' in updates) {
+    payload.title = updates.title
+  }
+  if ('description' in updates) {
+    payload.description = updates.description ?? ''
+  }
+  if ('dueDate' in updates) {
+    payload.due_date = updates.dueDate ?? null
+  }
+  if ('isCompleted' in updates) {
+    payload.is_completed = updates.isCompleted
+  }
+  if ('listId' in updates) {
+    payload.list_id = updates.listId
+  }
+  if ('updatedAt' in updates) {
+    payload.updated_at = updates.updatedAt
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return
+  }
+
+  const boardId = await getBoardIdByCardId(cardId)
+  const { error } = await supabase.from('cards').update(payload).eq('id', cardId)
+  if (error) {
+    throw new Error(error.message)
+  }
+  invalidateBoardStoreCache(boardId)
+}
+
 export async function upsertCardRemote(boardId: string, card: CardData): Promise<void> {
   const { error } = await supabase.from('cards').upsert(
     {

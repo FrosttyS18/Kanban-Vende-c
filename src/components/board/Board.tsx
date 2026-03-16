@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import {
   DndContext,
@@ -39,6 +39,7 @@ import {
   setStoredBoardId,
   subscribeBoardRealtime,
   syncCardsOrderingRemote,
+  updateCardFieldsRemote,
   updateListRemote,
   upsertCardRemote
 } from '@/services/boardApi'
@@ -469,7 +470,6 @@ export default function Board({
     const snapshot = storeRef.current
     const actor = snapshot.members.find((member) => member.id === snapshot.currentMemberId)
     const nowIso = new Date().toISOString()
-    let cardToPersist: CardData | null = null
     let notificationsToPersist: MemberNotification[] = []
     let nextNotifications = snapshot.notifications
 
@@ -483,7 +483,6 @@ export default function Board({
         ...updates,
         updatedAt: nowIso
       }
-      cardToPersist = nextCard
 
       if (actor && Array.isArray(updates.memberIds)) {
         const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
@@ -526,10 +525,43 @@ export default function Board({
       notifications: nextNotifications
     })
 
+    const cardToPersist = nextCards.find((card) => card.id === cardId) ?? null
+
     if (cardToPersist) {
-      void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
-        handleRemoteError('upsert_card', error, activeBoardId)
-      })
+      const hasRelationalUpdates =
+        'labels' in updates ||
+        'memberIds' in updates ||
+        'links' in updates ||
+        'checklists' in updates
+
+      if (hasRelationalUpdates) {
+        void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
+          handleRemoteError('upsert_card', error, activeBoardId)
+        })
+      } else {
+        const scalarUpdates: Partial<Pick<CardData, 'title' | 'description' | 'dueDate' | 'isCompleted' | 'listId' | 'updatedAt'>> = {
+          updatedAt: cardToPersist.updatedAt
+        }
+        if ('title' in updates) {
+          scalarUpdates.title = cardToPersist.title
+        }
+        if ('description' in updates) {
+          scalarUpdates.description = cardToPersist.description
+        }
+        if ('dueDate' in updates) {
+          scalarUpdates.dueDate = cardToPersist.dueDate
+        }
+        if ('isCompleted' in updates) {
+          scalarUpdates.isCompleted = cardToPersist.isCompleted
+        }
+        if ('listId' in updates) {
+          scalarUpdates.listId = cardToPersist.listId
+        }
+
+        void updateCardFieldsRemote(cardToPersist.id, scalarUpdates).catch((error) => {
+          handleRemoteError('update_card_fields', error, activeBoardId)
+        })
+      }
     }
 
     if (notificationsToPersist.length > 0) {
@@ -960,8 +992,11 @@ export default function Board({
         })
 
         const targetListTitle = boardColumns.find((column) => column.id === cardToPersist.listId)?.title ?? 'Lista'
-        void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
-          handleRemoteError('move_card_upsert', error, activeBoardId, {
+        void updateCardFieldsRemote(cardToPersist.id, {
+          listId: cardToPersist.listId,
+          updatedAt: cardToPersist.updatedAt
+        }).catch((error) => {
+          handleRemoteError('move_card_update_fields', error, activeBoardId, {
             resourceId: cardToPersist.id,
             rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
           })
@@ -1125,7 +1160,7 @@ export default function Board({
                 value={newBoardTitle}
                 onChange={(event) => setNewBoardTitle(event.target.value)}
                 className="mt-4 h-11 rounded-xl border border-primary bg-black px-3.5 text-[18px] font-semibold text-white placeholder:text-[#7d7d7d]"
-                placeholder="Nome do time/organizacao/area"
+                placeholder="Nome do time/organização/área"
                 autoFocus
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
@@ -1241,7 +1276,7 @@ export default function Board({
                     value={newListTitle}
                     onChange={(event) => setNewListTitle(event.target.value.slice(0, LIST_TITLE_MAX_LENGTH))}
                     maxLength={LIST_TITLE_MAX_LENGTH}
-                    placeholder="Titulo da lista"
+                    placeholder="Título da lista"
                     className="h-10 border-white/20 bg-[#242528] text-sm text-[#d1d1d1] placeholder:text-[#a3a3a3]"
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') {

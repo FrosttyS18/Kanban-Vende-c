@@ -19,14 +19,17 @@ export function isAllowedCorporateEmail(email: string | undefined): boolean {
   return email.toLowerCase().endsWith(`@${allowedEmailDomain}`)
 }
 
-export async function signInWithGoogle(): Promise<{ error: string | null }> {
+export async function signInWithGoogle(redirectPath?: string): Promise<{ error: string | null }> {
   if (!hasSupabaseConfig()) {
     return {
       error: "Configuração do Supabase ausente. Defina as variáveis de ambiente.",
     }
   }
 
-  const redirectTo = `${window.location.origin}/`
+  const normalizedPath = redirectPath?.trim()
+  const fallbackPath = `${window.location.pathname}${window.location.search}` || "/"
+  const safePath = normalizedPath && normalizedPath.startsWith("/") ? normalizedPath : fallbackPath
+  const redirectTo = `${window.location.origin}${safePath}`
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
