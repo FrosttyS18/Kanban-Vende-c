@@ -705,10 +705,14 @@ function invalidateBoardStoreCache(boardId?: string): void {
   boardStoreCacheByKey.delete(getStoreCacheKey())
 }
 
-export async function loadBoardStoreFromRemote(selectedBoardId?: string, options?: { forceRefresh?: boolean }): Promise<BoardStore> {
+export async function loadBoardStoreFromRemote(
+  selectedBoardId?: string,
+  options?: { forceRefresh?: boolean; bypassInFlight?: boolean }
+): Promise<BoardStore> {
   const cacheKey = getStoreCacheKey(selectedBoardId)
   const now = Date.now()
   const forceRefresh = options?.forceRefresh === true
+  const bypassInFlight = options?.bypassInFlight === true
 
   if (forceRefresh) {
     boardStoreCacheByKey.delete(cacheKey)
@@ -719,25 +723,34 @@ export async function loadBoardStoreFromRemote(selectedBoardId?: string, options
     return cloneBoardStore(cachedEntry.value)
   }
 
-  const inFlightPromise = boardStoreInFlightByKey.get(cacheKey)
-  if (inFlightPromise) {
-    const inFlightStore = await inFlightPromise
-    return cloneBoardStore(inFlightStore)
+  if (!bypassInFlight) {
+    const inFlightPromise = boardStoreInFlightByKey.get(cacheKey)
+    if (inFlightPromise) {
+      const inFlightStore = await inFlightPromise
+      return cloneBoardStore(inFlightStore)
+    }
+
+    const promise = fetchBoardStoreFromRemote(selectedBoardId)
+    boardStoreInFlightByKey.set(cacheKey, promise)
+
+    try {
+      const result = await promise
+      boardStoreCacheByKey.set(cacheKey, {
+        expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
+        value: cloneBoardStore(result)
+      })
+      return cloneBoardStore(result)
+    } finally {
+      boardStoreInFlightByKey.delete(cacheKey)
+    }
   }
 
-  const promise = fetchBoardStoreFromRemote(selectedBoardId)
-  boardStoreInFlightByKey.set(cacheKey, promise)
-
-  try {
-    const result = await promise
-    boardStoreCacheByKey.set(cacheKey, {
-      expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
-      value: cloneBoardStore(result)
-    })
-    return cloneBoardStore(result)
-  } finally {
-    boardStoreInFlightByKey.delete(cacheKey)
-  }
+  const result = await fetchBoardStoreFromRemote(selectedBoardId)
+  boardStoreCacheByKey.set(cacheKey, {
+    expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
+    value: cloneBoardStore(result)
+  })
+  return cloneBoardStore(result)
 }
 
 export async function updateBoardRemote(boardId: string, payload: { title: string; color: string }): Promise<void> {

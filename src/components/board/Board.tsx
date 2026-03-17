@@ -175,7 +175,9 @@ export default function Board({
   const [newBoardColor, setNewBoardColor] = useState('#ff0068')
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
-  const realtimeReloadTimer = useRef<number | null>(null)
+  const realtimeDebounceTimerRef = useRef<number | null>(null)
+  const pendingRealtimeRefreshRef = useRef(false)
+  const isRealtimeRefreshingRef = useRef(false)
   const realtimeReconnectTimerRef = useRef<number | null>(null)
   const realtimeReconnectAttemptRef = useRef(0)
   const [realtimeSubscriptionVersion, setRealtimeSubscriptionVersion] = useState(0)
@@ -197,9 +199,14 @@ export default function Board({
       if (operationErrorTimerRef.current) {
         window.clearTimeout(operationErrorTimerRef.current)
       }
+      if (realtimeDebounceTimerRef.current) {
+        window.clearTimeout(realtimeDebounceTimerRef.current)
+      }
       if (realtimeReconnectTimerRef.current) {
         window.clearTimeout(realtimeReconnectTimerRef.current)
       }
+      pendingRealtimeRefreshRef.current = false
+      isRealtimeRefreshingRef.current = false
     }
   }, [])
 
@@ -222,14 +229,17 @@ export default function Board({
   )
 
   const loadStore = useCallback(
-    async (preferredBoardId?: string, options?: { forceRefresh?: boolean; silent?: boolean }) => {
+    async (preferredBoardId?: string, options?: { forceRefresh?: boolean; silent?: boolean; bypassInFlight?: boolean }) => {
       const shouldShowLoader = options?.silent !== true
       if (shouldShowLoader) {
         setIsLoadingStore(true)
       }
       setStoreError(null)
       try {
-        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, options)
+        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, {
+          forceRefresh: options?.forceRefresh,
+          bypassInFlight: options?.bypassInFlight
+        })
         applyStore(nextStore)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Não foi possível carregar os boards.'
@@ -355,9 +365,76 @@ export default function Board({
       return
     }
 
+    let effectDisposed = false
     const snapshot = storeRef.current
     const boardColumns = getBoardColumns(snapshot, activeBoardId)
     const boardCards = getBoardCards(snapshot, boardColumns)
+    const logRealtime = (event: string, payload: Record<string, unknown>) => {
+      if (import.meta.env.DEV) {
+        console.info(`[${event}]`, payload)
+      }
+    }
+
+    const runRealtimeRefreshQueue = async () => {
+      if (effectDisposed || !activeBoardId) {
+        return
+      }
+      if (isRealtimeRefreshingRef.current || !pendingRealtimeRefreshRef.current) {
+        return
+      }
+
+      const boardId = activeBoardId
+      isRealtimeRefreshingRef.current = true
+      pendingRealtimeRefreshRef.current = false
+      logRealtime('realtime_refresh_started', { boardId })
+
+      try {
+        await loadStore(boardId, { forceRefresh: true, silent: true, bypassInFlight: true })
+      } catch (error) {
+        console.warn('[realtime_refresh_failed]', {
+          boardId,
+          message: error instanceof Error ? error.message : 'Erro desconhecido',
+          error
+        })
+      } finally {
+        isRealtimeRefreshingRef.current = false
+        logRealtime('realtime_refresh_finished', { boardId })
+
+        if (!effectDisposed && pendingRealtimeRefreshRef.current) {
+          logRealtime('realtime_refresh_pending_coalesced', { boardId })
+          void runRealtimeRefreshQueue()
+        }
+      }
+    }
+
+    const requestRealtimeRefresh = (mode: 'debounced' | 'immediate' = 'debounced') => {
+      if (effectDisposed) {
+        return
+      }
+
+      pendingRealtimeRefreshRef.current = true
+      logRealtime('realtime_event_received', {
+        boardId: activeBoardId,
+        mode
+      })
+
+      if (mode === 'immediate') {
+        if (realtimeDebounceTimerRef.current) {
+          window.clearTimeout(realtimeDebounceTimerRef.current)
+          realtimeDebounceTimerRef.current = null
+        }
+        void runRealtimeRefreshQueue()
+        return
+      }
+
+      if (realtimeDebounceTimerRef.current) {
+        window.clearTimeout(realtimeDebounceTimerRef.current)
+      }
+      realtimeDebounceTimerRef.current = window.setTimeout(() => {
+        realtimeDebounceTimerRef.current = null
+        void runRealtimeRefreshQueue()
+      }, REALTIME_RELOAD_DEBOUNCE_MS)
+    }
 
     const scheduleRealtimeReconnect = () => {
       if (realtimeReconnectTimerRef.current) {
@@ -373,12 +450,7 @@ export default function Board({
     }
 
     const unsubscribe = subscribeBoardRealtimeWithOptions(activeBoardId, () => {
-      if (realtimeReloadTimer.current) {
-        window.clearTimeout(realtimeReloadTimer.current)
-      }
-      realtimeReloadTimer.current = window.setTimeout(() => {
-        void loadStore(activeBoardId, { forceRefresh: true, silent: true })
-      }, REALTIME_RELOAD_DEBOUNCE_MS)
+      requestRealtimeRefresh()
     }, {
       currentUserId: store.currentMemberId,
       initialScope: {
@@ -398,15 +470,23 @@ export default function Board({
           boardId: activeBoardId,
           status
         })
-        void loadStore(activeBoardId, { forceRefresh: true, silent: true })
+        requestRealtimeRefresh('immediate')
         scheduleRealtimeReconnect()
       }
     })
 
     return () => {
-      if (realtimeReloadTimer.current) {
-        window.clearTimeout(realtimeReloadTimer.current)
-        realtimeReloadTimer.current = null
+      effectDisposed = true
+      pendingRealtimeRefreshRef.current = false
+      isRealtimeRefreshingRef.current = false
+
+      if (realtimeDebounceTimerRef.current) {
+        window.clearTimeout(realtimeDebounceTimerRef.current)
+        realtimeDebounceTimerRef.current = null
+      }
+      if (realtimeReconnectTimerRef.current) {
+        window.clearTimeout(realtimeReconnectTimerRef.current)
+        realtimeReconnectTimerRef.current = null
       }
       unsubscribe()
     }
