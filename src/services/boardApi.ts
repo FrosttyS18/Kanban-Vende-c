@@ -1368,33 +1368,38 @@ export async function syncCardsOrderingRemote(boardId: string, columns: ColumnDa
   invalidateBoardStoreCache(boardId)
 }
 
-export async function insertNotificationsRemote(notifications: MemberNotification[]): Promise<void> {
-  if (notifications.length === 0) {
-    return
-  }
-  const rows = notifications
-    .filter((notification) => isUuid(notification.memberId))
-    .map((notification) => ({
-      id: notification.id,
-      user_id: notification.memberId,
-      board_id: notification.boardId,
-      card_id: notification.cardId,
-      type: notification.type,
-      title: notification.title,
-      message: notification.message,
-      is_read: notification.isRead,
-      created_at: notification.createdAt
-    }))
-
-  if (rows.length === 0) {
-    return
+export async function createMemberAssignmentNotificationsRemote(cardId: string, memberIds: string[]): Promise<number> {
+  const normalizedCardId = cardId.trim()
+  if (!normalizedCardId) {
+    return 0
   }
 
-  const { error } = await supabase.from('notifications').upsert(rows, { onConflict: 'id' })
+  const uniqueMemberIds = Array.from(new Set(memberIds.map((memberId) => memberId.trim()))).filter((memberId) => isUuid(memberId))
+  if (uniqueMemberIds.length === 0) {
+    return 0
+  }
+
+  const { data, error } = await supabase.rpc('create_member_assignment_notifications', {
+    p_card_id: normalizedCardId,
+    p_member_ids: uniqueMemberIds
+  })
+
   if (error) {
     throw new Error(error.message)
   }
-  invalidateBoardStoreCache(notifications[0]?.boardId)
+
+  invalidateBoardStoreCache()
+
+  if (typeof data === 'number' && Number.isFinite(data)) {
+    return data
+  }
+
+  if (typeof data === 'string') {
+    const parsed = Number.parseInt(data, 10)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  return 0
 }
 
 export async function markNotificationsReadRemote(userId: string): Promise<void> {

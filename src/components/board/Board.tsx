@@ -29,8 +29,8 @@ import {
   createListRemote,
   deleteCardRemote,
   deleteListRemote,
+  createMemberAssignmentNotificationsRemote,
   inviteMemberByEmailRemote,
-  insertNotificationsRemote,
   loadBoardStoreFromRemote,
   getBoardSyncStampRemote,
   recordCardActivityRemote,
@@ -689,10 +689,8 @@ export default function Board({
     }
 
     const snapshot = storeRef.current
-    const actor = snapshot.members.find((member) => member.id === snapshot.currentMemberId)
     const nowIso = new Date().toISOString()
-    let notificationsToPersist: MemberNotification[] = []
-    let nextNotifications = snapshot.notifications
+    let addedMemberIdsForNotification: string[] = []
 
     const nextCards = snapshot.cards.map((card) => {
       if (card.id !== cardId) {
@@ -705,36 +703,10 @@ export default function Board({
         updatedAt: nowIso
       }
 
-      if (actor && Array.isArray(updates.memberIds)) {
-        const addedMemberIds = updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId))
-        if (addedMemberIds.length > 0) {
-          const memberNotifications = addedMemberIds
-            .filter((memberId) => memberId !== actor.id)
-            .map((memberId): MemberNotification | null => {
-              const targetMember = snapshot.members.find((member) => member.id === memberId)
-              if (!targetMember) {
-                return null
-              }
-
-              return {
-                id: createId('notif'),
-                memberId: targetMember.id,
-                boardId: activeBoardId,
-                cardId: card.id,
-                type: 'member_assigned' as const,
-                title: ACTIVITY_MESSAGES.memberAssignedTitle,
-                message: ACTIVITY_MESSAGES.memberAssignedMessage(actor.name, card.title),
-                createdAt: nowIso,
-                isRead: false
-              }
-            })
-            .filter((item): item is MemberNotification => item !== null)
-
-          if (memberNotifications.length > 0) {
-            notificationsToPersist = memberNotifications
-            nextNotifications = [...snapshot.notifications, ...memberNotifications]
-          }
-        }
+      if (Array.isArray(updates.memberIds)) {
+        addedMemberIdsForNotification = Array.from(
+          new Set(updates.memberIds.filter((memberId) => !card.memberIds.includes(memberId) && memberId !== snapshot.currentMemberId))
+        )
       }
 
       return nextCard
@@ -742,8 +714,7 @@ export default function Board({
 
     applyStore({
       ...snapshot,
-      cards: nextCards,
-      notifications: nextNotifications
+      cards: nextCards
     })
 
     const cardToPersist = nextCards.find((card) => card.id === cardId) ?? null
@@ -756,9 +727,27 @@ export default function Board({
         'checklists' in updates
 
       if (hasRelationalUpdates) {
-        void upsertCardRemote(activeBoardId, cardToPersist).catch((error) => {
-          handleRemoteError('upsert_card', error, activeBoardId)
-        })
+        void upsertCardRemote(activeBoardId, cardToPersist)
+          .then(() => {
+            if (addedMemberIdsForNotification.length === 0) {
+              return
+            }
+
+            void createMemberAssignmentNotificationsRemote(cardToPersist.id, addedMemberIdsForNotification).catch((error) => {
+              console.error('[notification_create_error]', {
+                action: 'create_member_assignment_notifications',
+                boardId: activeBoardId,
+                cardId: cardToPersist.id,
+                memberIds: addedMemberIdsForNotification,
+                message: error instanceof Error ? error.message : 'Erro desconhecido',
+                error
+              })
+              showOperationError('Membros salvos, mas nao foi possivel enviar notificacao.')
+            })
+          })
+          .catch((error) => {
+            handleRemoteError('upsert_card', error, activeBoardId)
+          })
       } else {
         const scalarUpdates: Partial<Pick<CardData, 'title' | 'description' | 'dueDate' | 'isCompleted' | 'listId' | 'updatedAt'>> = {
           updatedAt: cardToPersist.updatedAt
@@ -783,12 +772,6 @@ export default function Board({
           handleRemoteError('update_card_fields', error, activeBoardId)
         })
       }
-    }
-
-    if (notificationsToPersist.length > 0) {
-      void insertNotificationsRemote(notificationsToPersist).catch((error) => {
-        handleRemoteError('insert_notifications', error, activeBoardId)
-      })
     }
   }
 
