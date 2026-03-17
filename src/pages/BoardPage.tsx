@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 import Board from '@/components/board/Board'
-import { type BoardData, type MemberNotification } from '@/types'
-import { deleteBoardRemote, joinBoardViaTokenRemote, markNotificationsReadRemote, reorderBoardsRemote, updateBoardRemote } from '@/services/boardApi'
+import { type BoardCatalogItem, type BoardData, type GlobalRoleUser, type GlobalUserRole, type MemberNotification } from '@/types'
+import { deleteBoardRemote, deleteNotificationByIdRemote, joinBoardViaTokenRemote, listBoardCatalogRemote, listGlobalAdminsAndMembersRemote, markNotificationReadByIdRemote, markNotificationsReadRemote, reorderBoardsRemote, setGlobalRoleByEmailRemote, updateBoardRemote } from '@/services/boardApi'
 
 interface BoardPageProps {
   userEmail?: string
@@ -104,11 +104,15 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [createBoardSignal, setCreateBoardSignal] = useState(0)
   const [shareBoardSignal, setShareBoardSignal] = useState(0)
   const [boards, setBoards] = useState<BoardData[]>([])
+  const [boardCatalog, setBoardCatalog] = useState<BoardCatalogItem[]>([])
   const [fallbackBoardId, setFallbackBoardId] = useState(() => (urlState.kind === 'board' ? urlState.boardId : ''))
   const [boardReloadKey, setBoardReloadKey] = useState(0)
   const [profileNotifications, setProfileNotifications] = useState<MemberNotification[]>([])
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
   const [currentMemberId, setCurrentMemberId] = useState('')
+  const [currentUserRole, setCurrentUserRole] = useState<GlobalUserRole>('member')
+  const [globalRoleUsers, setGlobalRoleUsers] = useState<GlobalRoleUser[]>([])
+  const [isManagingGlobalRoles, setIsManagingGlobalRoles] = useState(false)
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
   const lastOpenCardKeyRef = useRef<string>('')
@@ -119,6 +123,34 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     }
     return fallbackBoardId
   }, [fallbackBoardId, urlState])
+
+  const selectedBoardCatalog = useMemo(
+    () => boardCatalog.find((board) => board.id === selectedBoardId) ?? null,
+    [boardCatalog, selectedBoardId]
+  )
+
+  const loadBoardCatalog = useCallback(async () => {
+    try {
+      const catalog = await listBoardCatalogRemote()
+      setBoardCatalog(catalog)
+    } catch {
+      setBoardCatalog([])
+    }
+  }, [])
+
+  const loadGlobalRoleUsers = useCallback(async () => {
+    if (currentUserRole !== 'admin') {
+      setGlobalRoleUsers([])
+      return
+    }
+
+    try {
+      const users = await listGlobalAdminsAndMembersRemote()
+      setGlobalRoleUsers(users)
+    } catch {
+      setGlobalRoleUsers([])
+    }
+  }, [currentUserRole])
 
   const triggerCreateBoard = () => {
     setCreateBoardSignal((prev) => prev + 1)
@@ -209,6 +241,23 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }, [])
 
   useEffect(() => {
+    void loadBoardCatalog()
+  }, [boardReloadKey, loadBoardCatalog])
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void loadBoardCatalog()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [loadBoardCatalog])
+
+  useEffect(() => {
+    void loadGlobalRoleUsers()
+  }, [loadGlobalRoleUsers])
+
+  useEffect(() => {
     if (urlState.kind !== 'board') {
       if (urlState.kind === 'root') {
         updateHistory('/', true)
@@ -290,9 +339,10 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onCreateBoard={triggerCreateBoard}
+          canCreateBoard={currentUserRole === 'admin'}
           onShareBoard={() => setShareBoardSignal((prev) => prev + 1)}
-          activeBoardTitle={boards.find((board) => board.id === selectedBoardId)?.title}
-          activeBoardColor={boards.find((board) => board.id === selectedBoardId)?.color}
+          activeBoardTitle={selectedBoardCatalog?.title}
+          activeBoardColor={selectedBoardCatalog?.color}
           notifications={profileNotifications}
           unreadNotificationsCount={unreadNotificationsCount}
           onMarkNotificationsRead={() => {
@@ -304,20 +354,64 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             setUnreadNotificationsCount(0)
           }}
           onOpenNotification={(notification) => {
+            if (!notification.isRead) {
+              setProfileNotifications((prev) =>
+                prev.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item))
+              )
+              setUnreadNotificationsCount((prev) => Math.max(0, prev - 1))
+
+              if (currentMemberId) {
+                void markNotificationReadByIdRemote(currentMemberId, notification.id).catch(() => {
+                  setBoardReloadKey((prev) => prev + 1)
+                })
+              }
+            }
+
             setFallbackBoardId(notification.boardId)
             navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
+          }}
+          onDeleteNotification={(notification) => {
+            setProfileNotifications((prev) => prev.filter((item) => item.id !== notification.id))
+            if (!notification.isRead) {
+              setUnreadNotificationsCount((prev) => Math.max(0, prev - 1))
+            }
+
+            if (!currentMemberId) {
+              return
+            }
+
+            void deleteNotificationByIdRemote(currentMemberId, notification.id).catch(() => {
+              setBoardReloadKey((prev) => prev + 1)
+            })
           }}
         />
       </div>
 
       <Sidebar
-        boards={boards}
+        boards={boardCatalog}
         activeBoardId={selectedBoardId}
+        canCreateBoard={currentUserRole === 'admin'}
+        currentUserRole={currentUserRole}
+        globalRoleUsers={globalRoleUsers}
+        isManagingRoles={isManagingGlobalRoles}
         onCreateBoard={triggerCreateBoard}
         onSelectBoard={handleSelectBoard}
         onReorderBoards={reorderBoards}
         onRenameBoard={renameBoard}
         onDeleteBoard={deleteBoard}
+        onRefreshGlobalRoles={() => {
+          void loadGlobalRoleUsers()
+        }}
+        onSetGlobalRole={async (email, role) => {
+          setIsManagingGlobalRoles(true)
+          const result = await setGlobalRoleByEmailRemote(email, role)
+          if (result.ok) {
+            await Promise.all([loadGlobalRoleUsers(), loadBoardCatalog()])
+            setBoardReloadKey((prev) => prev + 1)
+          }
+          setIsManagingGlobalRoles(false)
+          return result
+        }}
       />
 
       <main className="overflow-hidden bg-[#252525]">
@@ -334,8 +428,10 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           openCardRequest={openCardRequest}
           closeCardModalSignal={closeCardModalSignal}
           selectedBoardId={selectedBoardId}
+          selectedBoardAccess={selectedBoardCatalog?.hasAccess ?? null}
           onBoardCreated={(boardId) => {
             setFallbackBoardId(boardId)
+            setBoardReloadKey((prev) => prev + 1)
             navigateToBoard(boardId)
           }}
           onCardOpen={(boardId, cardId) => {
@@ -348,6 +444,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             setBoards(meta.boards)
             setFallbackBoardId(meta.currentBoardId)
             setCurrentMemberId(meta.currentMemberId)
+            setCurrentUserRole(meta.currentUserRole)
             setProfileNotifications(meta.notifications)
             setUnreadNotificationsCount(meta.unreadNotificationsCount)
 
@@ -361,8 +458,13 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             }
 
             if (urlState.kind === 'board') {
+              const selectedBoardFromCatalog = boardCatalog.find((board) => board.id === urlState.boardId)
+              if (selectedBoardFromCatalog && !selectedBoardFromCatalog.hasAccess) {
+                return
+              }
+
               const boardExists = meta.boards.some((board) => board.id === urlState.boardId)
-              if (!boardExists) {
+              if (!boardExists && !selectedBoardFromCatalog) {
                 navigateToBoard(meta.currentBoardId, { replace: true })
               }
             }

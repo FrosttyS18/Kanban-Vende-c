@@ -2,12 +2,15 @@ import { supabase } from '@/lib/supabase'
 import { createId } from '@/utils/createId'
 import {
   type Activity,
+  type BoardCatalogItem,
   type BoardData,
   type BoardShareSettings,
   type BoardStore,
   type CardData,
   type Checklist,
   type ColumnData,
+  type GlobalRoleUser,
+  type GlobalUserRole,
   type Label,
   type LinkAttachment,
   type Member,
@@ -121,10 +124,26 @@ type NotificationRow = {
   created_at: string
 }
 
+type BoardCatalogRow = {
+  id: string
+  title: string
+  color: string
+  updated_at: string
+  has_access: boolean
+}
+
+type GlobalRoleUserRow = {
+  id: string
+  email: string
+  full_name: string | null
+  role_global: GlobalUserRole
+}
+
 type ProfileRow = {
   id: string
   email: string
   full_name: string | null
+  role_global?: GlobalUserRole
   last_board_id?: string | null
 }
 
@@ -223,7 +242,7 @@ async function getCurrentUser(): Promise<{ id: string; email: string; fullName: 
   }
 }
 
-async function ensureCurrentProfile(): Promise<{ id: string; email: string; lastBoardId: string | null }> {
+async function ensureCurrentProfile(): Promise<{ id: string; email: string; lastBoardId: string | null; roleGlobal: GlobalUserRole }> {
   const user = await getCurrentUser()
   const payload = {
     id: user.id,
@@ -231,7 +250,11 @@ async function ensureCurrentProfile(): Promise<{ id: string; email: string; last
     full_name: user.fullName,
     avatar_url: user.avatarUrl
   }
-  const { data, error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' }).select('id,email,last_board_id').maybeSingle()
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert(payload, { onConflict: 'id' })
+    .select('id,email,last_board_id,role_global')
+    .maybeSingle()
   if (error) {
     throw new Error(error.message)
   }
@@ -241,11 +264,12 @@ async function ensureCurrentProfile(): Promise<{ id: string; email: string; last
     throw new Error(syncInvitesError.message)
   }
 
-  const row = data as { id: string; email: string; last_board_id: string | null } | null
+  const row = data as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
   return {
     id: user.id,
     email: user.email,
-    lastBoardId: row?.last_board_id ?? null
+    lastBoardId: row?.last_board_id ?? null,
+    roleGlobal: row?.role_global === 'admin' ? 'admin' : 'member'
   }
 }
 
@@ -331,7 +355,8 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
       notifications: [],
       members: [],
       currentBoardId: '',
-      currentMemberId: currentUserId
+      currentMemberId: currentUserId,
+      currentUserRole: currentUser.roleGlobal
     }
     clearLegacyBoardStorage()
     setStoredBoardId('')
@@ -678,7 +703,8 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
     notifications,
     members,
     currentBoardId: resolvedBoardId,
-    currentMemberId: currentUserId
+    currentMemberId: currentUserId,
+    currentUserRole: currentUser.roleGlobal
   }
 }
 
@@ -751,6 +777,73 @@ export async function loadBoardStoreFromRemote(
     value: cloneBoardStore(result)
   })
   return cloneBoardStore(result)
+}
+
+export async function listBoardCatalogRemote(): Promise<BoardCatalogItem[]> {
+  const { data, error } = await supabase.rpc('list_board_catalog')
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rows = (data as BoardCatalogRow[] | null) ?? []
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    color: row.color,
+    updatedAt: row.updated_at,
+    hasAccess: row.has_access
+  }))
+}
+
+export async function listGlobalAdminsAndMembersRemote(): Promise<GlobalRoleUser[]> {
+  const { data, error } = await supabase.rpc('list_global_admins_and_members')
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rows = (data as GlobalRoleUserRow[] | null) ?? []
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    fullName: row.full_name?.trim() || row.email.split('@')[0],
+    roleGlobal: row.role_global === 'admin' ? 'admin' : 'member'
+  }))
+}
+
+export async function setGlobalRoleByEmailRemote(email: string, role: GlobalUserRole): Promise<{ ok: boolean; message: string }> {
+  const normalizedEmail = email.trim().toLowerCase()
+  if (!normalizedEmail) {
+    return { ok: false, message: 'Informe um e-mail válido.' }
+  }
+
+  const { data, error } = await supabase.rpc('set_global_role_by_email', {
+    p_email: normalizedEmail,
+    p_role: role
+  })
+
+  if (error) {
+    return { ok: false, message: error.message }
+  }
+
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row?.ok) {
+    const code = typeof row?.message === 'string' ? row.message : ''
+    if (code === 'forbidden') {
+      return { ok: false, message: 'Somente administradores podem alterar cargos globais.' }
+    }
+    if (code === 'user_not_found') {
+      return { ok: false, message: 'Usuário não encontrado.' }
+    }
+    if (code === 'invalid_role') {
+      return { ok: false, message: 'Cargo inválido.' }
+    }
+    if (code === 'cannot_remove_last_admin') {
+      return { ok: false, message: 'Não é possível remover o último administrador.' }
+    }
+    return { ok: false, message: 'Não foi possível atualizar o cargo global.' }
+  }
+
+  return { ok: true, message: 'Cargo global atualizado com sucesso.' }
 }
 
 export async function getBoardSyncStampRemote(boardId: string): Promise<number | null> {
@@ -938,23 +1031,49 @@ async function replaceCardLabelsRemote(boardId: string, cardId: string, labels: 
     }
   }
 
-  const { error: clearError } = await supabase.from('card_labels').delete().eq('card_id', cardId)
-  if (clearError) {
-    throw new Error(clearError.message)
-  }
-
-  if (uniqueLabels.length === 0) {
+  const desiredLabelIds = uniqueLabels.map((label) => label.id)
+  if (desiredLabelIds.length === 0) {
+    const { error: clearError } = await supabase.from('card_labels').delete().eq('card_id', cardId)
+    if (clearError) {
+      throw new Error(clearError.message)
+    }
     return
   }
 
-  const { error: insertError } = await supabase.from('card_labels').insert(
+  const { data: existingRows, error: existingError } = await supabase
+    .from('card_labels')
+    .select('label_id')
+    .eq('card_id', cardId)
+
+  if (existingError) {
+    throw new Error(existingError.message)
+  }
+
+  const toDelete = ((existingRows as Array<{ label_id: string }> | null) ?? [])
+    .map((row) => row.label_id)
+    .filter((labelId) => !desiredLabelIds.includes(labelId))
+
+  if (toDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from('card_labels')
+      .delete()
+      .eq('card_id', cardId)
+      .in('label_id', toDelete)
+
+    if (deleteError) {
+      throw new Error(deleteError.message)
+    }
+  }
+
+  const { error: upsertError } = await supabase.from('card_labels').upsert(
     uniqueLabels.map((label) => ({
       card_id: cardId,
       label_id: label.id
-    }))
+    })),
+    { onConflict: 'card_id,label_id' }
   )
-  if (insertError) {
-    throw new Error(insertError.message)
+  if (upsertError) {
+    throw new Error(upsertError.message)
   }
 }
 
@@ -1410,6 +1529,43 @@ export async function markNotificationsReadRemote(userId: string): Promise<void>
   if (error) {
     throw new Error(error.message)
   }
+  invalidateBoardStoreCache()
+}
+
+export async function markNotificationReadByIdRemote(userId: string, notificationId: string): Promise<void> {
+  if (!isUuid(userId) || !notificationId.trim()) {
+    return
+  }
+
+  const { error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('id', notificationId)
+    .eq('user_id', userId)
+    .eq('is_read', false)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  invalidateBoardStoreCache()
+}
+
+export async function deleteNotificationByIdRemote(userId: string, notificationId: string): Promise<void> {
+  if (!isUuid(userId) || !notificationId.trim()) {
+    return
+  }
+
+  const { error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('id', notificationId)
+    .eq('user_id', userId)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
   invalidateBoardStoreCache()
 }
 

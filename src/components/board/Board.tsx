@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Lock, Plus, X } from 'lucide-react'
 import {
   DndContext,
   DragOverlay,
@@ -19,7 +19,7 @@ import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
 import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
-import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
+import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type GlobalUserRole, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import {
   archiveCardRemote,
@@ -53,6 +53,7 @@ type BoardProps = {
   openCardRequest?: { boardId: string; cardId: string; token: number } | null
   closeCardModalSignal?: number
   selectedBoardId?: string
+  selectedBoardAccess?: boolean | null
   onBoardCreated?: (boardId: string) => void
   onCardOpen?: (boardId: string, cardId: string) => void
   onCardClose?: (boardId: string) => void
@@ -60,6 +61,7 @@ type BoardProps = {
     boards: BoardData[]
     currentBoardId: string
     currentMemberId: string
+    currentUserRole: GlobalUserRole
     notifications: MemberNotification[]
     unreadNotificationsCount: number
   }) => void
@@ -104,7 +106,8 @@ const EMPTY_STORE: BoardStore = {
   notifications: [],
   members: [],
   currentBoardId: '',
-  currentMemberId: ''
+  currentMemberId: '',
+  currentUserRole: 'member'
 }
 
 function getBoardColumns(snapshot: BoardStore, boardId: string): ColumnData[] {
@@ -170,6 +173,7 @@ export default function Board({
   openCardRequest,
   closeCardModalSignal = 0,
   selectedBoardId,
+  selectedBoardAccess = null,
   onBoardCreated,
   onCardOpen,
   onCardClose,
@@ -326,7 +330,8 @@ export default function Board({
     [activeBoardId, applyStore]
   )
 
-  const isCreateBoardOpen = createBoardSignal > dismissedCreateSignal
+  const canCreateBoard = store.currentUserRole === 'admin'
+  const isCreateBoardOpen = createBoardSignal > dismissedCreateSignal && canCreateBoard
   const isShareBoardOpen = shareBoardSignal > dismissedShareSignal
 
   useEffect(() => {
@@ -355,10 +360,11 @@ export default function Board({
       boards: store.boards,
       currentBoardId: activeBoardId,
       currentMemberId: store.currentMemberId,
+      currentUserRole: store.currentUserRole,
       notifications: profileNotifications.slice(0, 8),
       unreadNotificationsCount
     })
-  }, [activeBoardId, onBoardMetaChange, profileNotifications, store.boards, store.currentMemberId, unreadNotificationsCount])
+  }, [activeBoardId, onBoardMetaChange, profileNotifications, store.boards, store.currentMemberId, store.currentUserRole, unreadNotificationsCount])
 
   const currentBoard = useMemo(
     () => store.boards.find((board) => board.id === activeBoardId) ?? null,
@@ -1252,6 +1258,11 @@ export default function Board({
   }
 
   const createBoard = () => {
+    if (!canCreateBoard) {
+      showOperationError('Somente administradores podem criar boards.')
+      return
+    }
+
     const title = newBoardTitle.trim()
     if (!title) {
       return
@@ -1333,6 +1344,36 @@ export default function Board({
   }
 
   const hasBoardInRoute = Boolean(selectedBoardId?.trim())
+  const isAccessBlocked = hasBoardInRoute && selectedBoardAccess === false
+
+  if (isAccessBlocked) {
+    return (
+      <div className="relative h-full w-full overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 overflow-x-auto">
+          <div className="flex min-w-max items-start gap-4 px-6 py-6 blur-sm">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`blocked-column-${index}`} className="w-68.25 shrink-0 rounded-2xl border border-white/10 bg-[#101204] p-4 opacity-60">
+                <div className="h-5 w-36 rounded-md bg-white/10" />
+                <div className="mt-4 space-y-3">
+                  <div className="h-20 rounded-xl bg-white/10" />
+                  <div className="h-20 rounded-xl bg-white/10" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[1.5px]">
+          <div className="mx-4 w-full max-w-140 rounded-2xl border border-white/20 bg-[#1f1f21]/95 px-6 py-8 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full border border-white/25 bg-white/5">
+              <Lock className="size-7 text-white" />
+            </div>
+            <p className="text-2xl font-semibold text-white">Acesso restrito</p>
+            <p className="mt-2 text-base text-[#d1d1d1]">Você precisa de autorização de um administrador para visualizar esse Board.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (store.boards.length === 0) {
     if (hasBoardInRoute) {
@@ -1350,7 +1391,12 @@ export default function Board({
       <>
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
           <p className="text-sm text-[#d1d1d1]">Nenhum board encontrado.</p>
-          <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => setDismissedCreateSignal(createBoardSignal - 1)}>
+          <Button
+            className="h-9 bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-[#6a6a6a]"
+            onClick={() => setDismissedCreateSignal(createBoardSignal - 1)}
+            disabled={!canCreateBoard}
+            title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
+          >
             Criar primeiro board
           </Button>
         </div>

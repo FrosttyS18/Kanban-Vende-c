@@ -12,6 +12,23 @@ export interface Member {
   color: string
 }
 
+export type GlobalUserRole = 'admin' | 'member'
+
+export interface BoardCatalogItem {
+  id: string
+  title: string
+  color: string
+  updatedAt: string
+  hasAccess: boolean
+}
+
+export interface GlobalRoleUser {
+  id: string
+  email: string
+  fullName: string
+  roleGlobal: GlobalUserRole
+}
+
 export type SharePermission = 'view' | 'edit'
 
 export interface BoardShareMember {
@@ -157,4 +174,5 @@ export interface BoardStore {
   members: Member[]
   currentBoardId: string
   currentMemberId: string
+  currentUserRole: GlobalUserRole
 }

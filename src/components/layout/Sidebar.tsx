@@ -1,18 +1,24 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
+﻿import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Settings2, SquareKanban } from 'lucide-react'
-import { type BoardData } from '@/types'
+import { Crown, Lock, Plus, Settings2, SquareKanban } from 'lucide-react'
+import { type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole } from '@/types'
 
 type SidebarProps = {
-  boards: BoardData[]
+  boards: BoardCatalogItem[]
   activeBoardId: string
+  canCreateBoard: boolean
+  currentUserRole: GlobalUserRole
+  globalRoleUsers: GlobalRoleUser[]
+  isManagingRoles: boolean
   onCreateBoard: () => void
   onSelectBoard: (boardId: string) => void
   onReorderBoards: (orderedBoardIds: string[]) => void
   onRenameBoard: (boardId: string, title: string, color: string) => void
   onDeleteBoard: (boardId: string) => void
+  onSetGlobalRole: (email: string, role: GlobalUserRole) => Promise<{ ok: boolean; message: string }>
+  onRefreshGlobalRoles: () => void
 }
 
 const BOARD_TITLE_MAX_LENGTH = 150
@@ -44,14 +50,14 @@ type ContextMenuState = {
 }
 
 type SortableBoardButtonProps = {
-  board: BoardData
+  board: BoardCatalogItem
   active: boolean
   onSelectBoard: (boardId: string) => void
   onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, boardId: string) => void
 }
 
 function SortableBoardButton({ board, active, onSelectBoard, onContextMenu }: SortableBoardButtonProps) {
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: board.id })
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: board.id, disabled: !board.hasAccess })
 
   return (
     <button
@@ -62,28 +68,47 @@ function SortableBoardButton({ board, active, onSelectBoard, onContextMenu }: So
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        borderColor: board.color || '#d1d1d1',
+        borderColor: board.hasAccess ? board.color || '#d1d1d1' : '#4d4d4d',
         backgroundColor: active ? board.color || '#ff0068' : 'transparent',
-        opacity: isDragging ? 0.7 : 1
+        opacity: isDragging ? 0.7 : board.hasAccess ? 1 : 0.72
       }}
-      className={`flex h-8.25 w-51.25 items-center justify-center rounded-[7px] border px-2 text-center text-[14px] font-semibold text-white transition-colors ${
-        active ? '' : 'hover:bg-white/5'
+      className={`flex h-8.25 w-51.25 items-center justify-center gap-1.5 rounded-[7px] border px-2 text-center text-[14px] font-semibold transition-colors ${
+        active ? 'text-white' : board.hasAccess ? 'text-white hover:bg-white/5' : 'text-[#9b9b9b] hover:bg-white/5'
       }`}
       {...attributes}
       {...listeners}
     >
+      {!board.hasAccess && <Lock className="size-3.5 shrink-0" />}
       <span className="truncate">{board.title}</span>
     </button>
   )
 }
 
-export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelectBoard, onReorderBoards, onRenameBoard, onDeleteBoard }: SidebarProps) {
+export default function Sidebar({
+  boards,
+  activeBoardId,
+  canCreateBoard,
+  currentUserRole,
+  globalRoleUsers,
+  isManagingRoles,
+  onCreateBoard,
+  onSelectBoard,
+  onReorderBoards,
+  onRenameBoard,
+  onDeleteBoard,
+  onSetGlobalRole,
+  onRefreshGlobalRoles
+}: SidebarProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
   const [colorDraft, setColorDraft] = useState(BOARD_COLOR_OPTIONS[0])
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null)
-  const [isSettingsNoticeOpen, setIsSettingsNoticeOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [roleEmailDraft, setRoleEmailDraft] = useState('')
+  const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
+  const [settingsError, setSettingsError] = useState('')
+  const [settingsMessage, setSettingsMessage] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -94,6 +119,26 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
   const editingBoard = editingBoardId ? boards.find((item) => item.id === editingBoardId) ?? null : null
   const deletingBoard = deletingBoardId ? boards.find((item) => item.id === deletingBoardId) ?? null : null
 
+  const handleApplyRoleByEmail = async () => {
+    const email = roleEmailDraft.trim().toLowerCase()
+    if (!email) {
+      setSettingsError('Informe um e-mail corporativo.')
+      setSettingsMessage('')
+      return
+    }
+
+    const result = await onSetGlobalRole(email, roleDraft)
+    if (!result.ok) {
+      setSettingsError(result.message)
+      setSettingsMessage('')
+      return
+    }
+
+    setRoleEmailDraft('')
+    setSettingsError('')
+    setSettingsMessage(result.message)
+  }
+
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) {
@@ -103,6 +148,12 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
     const activeIndex = boards.findIndex((item) => item.id === String(active.id))
     const overIndex = boards.findIndex((item) => item.id === String(over.id))
     if (activeIndex === -1 || overIndex === -1) {
+      return
+    }
+
+    const activeBoard = boards[activeIndex]
+    const overBoard = boards[overIndex]
+    if (!activeBoard?.hasAccess || !overBoard?.hasAccess) {
       return
     }
 
@@ -147,7 +198,14 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
             <SquareKanban className="size-4 text-[#d1d1d1]" />
             Boards
           </div>
-          <button type="button" onClick={onCreateBoard} className="text-[#d1d1d1] hover:text-white" aria-label="Criar board">
+          <button
+            type="button"
+            onClick={onCreateBoard}
+            className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
+            aria-label="Criar board"
+            disabled={!canCreateBoard}
+            title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
+          >
             <Plus className="size-4" />
           </button>
         </div>
@@ -162,6 +220,11 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
                   active={board.id === activeBoardId}
                   onSelectBoard={onSelectBoard}
                   onContextMenu={(event, boardId) => {
+                    const targetBoard = boards.find((item) => item.id === boardId)
+                    if (!targetBoard?.hasAccess) {
+                      return
+                    }
+
                     event.preventDefault()
                     setContextMenu({
                       boardId,
@@ -179,7 +242,14 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
       <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
         <button
           type="button"
-          onClick={() => setIsSettingsNoticeOpen(true)}
+          onClick={() => {
+            setIsSettingsOpen(true)
+            setSettingsError('')
+            setSettingsMessage('')
+            if (currentUserRole === 'admin') {
+              onRefreshGlobalRoles()
+            }
+          }}
           className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
           aria-label="Configurações"
         >
@@ -349,15 +419,109 @@ export default function Sidebar({ boards, activeBoardId, onCreateBoard, onSelect
         </div>
       )}
 
-      {isSettingsNoticeOpen && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Aviso de configurações">
-          <div className="w-full max-w-96 rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
-            <h2 className="text-lg font-semibold text-white">Configurações</h2>
-            <p className="mt-2 text-sm text-[#d1d1d1]">novas funções em breve</p>
-            <div className="mt-4 flex justify-end">
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Configurações">
+          <div className="w-full max-w-180 rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+            {currentUserRole !== 'admin' ? (
+              <>
+                <h2 className="text-lg font-semibold text-white">Configurações</h2>
+                <p className="mt-2 text-sm text-[#d1d1d1]">Novas funções em breve.</p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-semibold text-white">Configurações de Administração</h2>
+                <p className="mt-2 text-sm text-[#d1d1d1]">Gerencie quais usuários podem criar boards e administrar cargos globais.</p>
+
+                <div className="mt-5 rounded-xl border border-white/10 bg-[#242528] p-4">
+                  <p className="text-sm font-semibold text-white">Alterar cargo por e-mail</p>
+                  <div className="mt-3 flex flex-col gap-2 md:flex-row">
+                    <input
+                      value={roleEmailDraft}
+                      onChange={(event) => {
+                        setRoleEmailDraft(event.target.value)
+                        if (settingsError) {
+                          setSettingsError('')
+                        }
+                        if (settingsMessage) {
+                          setSettingsMessage('')
+                        }
+                      }}
+                      placeholder="nome@vende-c.com"
+                      className="h-10 w-full rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-primary"
+                    />
+                    <select
+                      value={roleDraft}
+                      onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
+                      className="h-10 rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none"
+                    >
+                      <option value="admin">Admin</option>
+                      <option value="member">Member</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleApplyRoleByEmail()}
+                      disabled={isManagingRoles}
+                      className="h-10 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
+                  {settingsError && <p className="mt-2 text-sm text-[#ff9ab8]">{settingsError}</p>}
+                  {settingsMessage && <p className="mt-2 text-sm text-[#86efac]">{settingsMessage}</p>}
+                </div>
+
+                <div className="mt-4 max-h-84 overflow-y-auto rounded-xl border border-white/10 bg-[#242528] p-2">
+                  {globalRoleUsers.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-[#bcbcbc]">Nenhum usuário encontrado.</p>
+                  ) : (
+                    globalRoleUsers.map((user) => {
+                      const targetRole: GlobalUserRole = user.roleGlobal === 'admin' ? 'member' : 'admin'
+                      return (
+                        <div key={user.id} className="flex items-center gap-3 border-b border-white/10 px-2 py-3 last:border-b-0">
+                          <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary/20 text-xs font-semibold text-white">
+                            {user.fullName.slice(0, 2).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{user.fullName}</p>
+                            <p className="truncate text-xs text-[#bcbcbc]">{user.email}</p>
+                          </div>
+                          <span className={`rounded-md px-2 py-1 text-xs font-semibold ${user.roleGlobal === 'admin' ? 'bg-[#ff0068]/20 text-[#ff8fbf]' : 'bg-white/10 text-[#d1d1d1]'}`}>
+                            {user.roleGlobal === 'admin' ? 'Admin' : 'Member'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void onSetGlobalRole(user.email, targetRole).then((result) => {
+                                if (result.ok) {
+                                  setSettingsError('')
+                                  setSettingsMessage(result.message)
+                                } else {
+                                  setSettingsError(result.message)
+                                  setSettingsMessage('')
+                                }
+                              })
+                            }}
+                            disabled={isManagingRoles}
+                            className="h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {targetRole === 'admin' ? (
+                              <span className="inline-flex items-center gap-1"><Crown className="size-3" />Promover</span>
+                            ) : (
+                              'Rebaixar'
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="mt-5 flex justify-end">
               <button
                 type="button"
-                onClick={() => setIsSettingsNoticeOpen(false)}
+                onClick={() => setIsSettingsOpen(false)}
                 className="h-9 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
               >
                 Fechar

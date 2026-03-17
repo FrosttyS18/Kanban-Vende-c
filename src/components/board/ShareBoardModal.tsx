@@ -164,7 +164,7 @@ export default function ShareBoardModal({ isOpen, board, members, currentMemberI
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Compartilhar board">
-      <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-[#1e1e1e] p-6">
+      <div className="max-h-[calc(100vh-32px)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/15 bg-[#1e1e1e] p-6">
         <div className="mb-5 flex items-start justify-between">
           <div>
             <h2 className="text-[30px] font-semibold leading-tight text-white">Compartilhar "{board.title}"</h2>

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, Search, UserRound } from 'lucide-react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { Bell, Search, Trash2, UserRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/logo/Logo'
@@ -12,6 +12,7 @@ interface HeaderProps {
   searchQuery: string
   onSearchChange: (value: string) => void
   onCreateBoard: () => void
+  canCreateBoard?: boolean
   onShareBoard: () => void
   activeBoardTitle?: string
   activeBoardColor?: string
@@ -19,6 +20,7 @@ interface HeaderProps {
   unreadNotificationsCount?: number
   onMarkNotificationsRead?: () => void
   onOpenNotification?: (notification: MemberNotification) => void
+  onDeleteNotification?: (notification: MemberNotification) => void
 }
 
 function getInitials(email?: string): string {
@@ -47,13 +49,15 @@ export default function Header({
   searchQuery,
   onSearchChange,
   onCreateBoard,
+  canCreateBoard = true,
   onShareBoard,
   activeBoardTitle,
   activeBoardColor,
   notifications = [],
   unreadNotificationsCount = 0,
   onMarkNotificationsRead,
-  onOpenNotification
+  onOpenNotification,
+  onDeleteNotification
 }: HeaderProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
@@ -130,8 +134,14 @@ export default function Header({
           </Button>
 
           <Button
-            onClick={onCreateBoard}
-            className="h-8 rounded-[7px] bg-primary px-3.5 text-[12px] font-semibold text-white hover:bg-primary/90"
+            onClick={() => {
+              if (canCreateBoard) {
+                onCreateBoard()
+              }
+            }}
+            disabled={!canCreateBoard}
+            title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
+            className="h-8 rounded-[7px] bg-primary px-3.5 text-[12px] font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-[#6a6a6a]"
           >
             Criar
           </Button>
@@ -168,18 +178,27 @@ export default function Header({
                     <p className="px-2 py-2 text-xs text-[#9a9a9a]">Sem notificações novas.</p>
                   ) : (
                     notifications.map((notification) => (
-                      <button
-                        key={notification.id}
-                        type="button"
-                        onClick={() => {
-                          onOpenNotification?.(notification)
-                          setIsNotificationsOpen(false)
-                        }}
-                        className="block w-full rounded-[6px] px-2 py-2 text-left hover:bg-white/5"
-                      >
-                        <p className="text-xs font-semibold text-white">{notification.title}</p>
-                        <p className="mt-0.5 line-clamp-2 text-xs text-[#d1d1d1]">{notification.message}</p>
-                      </button>
+                      <div key={notification.id} className="flex items-start gap-1 rounded-[6px] px-1 py-1 hover:bg-white/5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onOpenNotification?.(notification)
+                            setIsNotificationsOpen(false)
+                          }}
+                          className="flex-1 rounded-[6px] px-1 py-1 text-left"
+                        >
+                          <p className="text-xs font-semibold text-white">{notification.title}</p>
+                          <p className="mt-0.5 line-clamp-2 text-xs text-[#d1d1d1]">{notification.message}</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteNotification?.(notification)}
+                          className="mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-[#a9a9a9] hover:bg-white/10 hover:text-white"
+                          aria-label="Excluir notificação"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
                     ))
                   )}
                 </div>
@@ -195,7 +214,7 @@ export default function Header({
                 setIsUserMenuOpen((prev) => !prev)
               }}
               className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-white"
-              aria-label="Abrir menu de usuario"
+              aria-label="Abrir menu de usuário"
             >
               {initials}
             </button>
@@ -205,7 +224,7 @@ export default function Header({
                 <div className="mb-2 rounded-md bg-[#252525] px-3 py-2">
                   <div className="flex items-center gap-2 text-sm text-[#d1d1d1]">
                     <UserRound className="size-4" />
-                    <span className="truncate">{userEmail ?? 'Usuario'}</span>
+                    <span className="truncate">{userEmail ?? 'Usuário'}</span>
                   </div>
                 </div>
                 {onLogout && (

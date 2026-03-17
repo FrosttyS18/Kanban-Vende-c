@@ -727,6 +727,18 @@ export default function CardModal({
       }
     }
 
+    if (exists && targetMember) {
+      const memberLabel = cardState.labels.find((label) => label.text === targetMember.name)
+      if (memberLabel) {
+        updateCardWithActivity(
+          { memberIds: next, labels: cardState.labels.filter((label) => label.id !== memberLabel.id) },
+          'member_removed',
+          `removeu membro ${memberName}`
+        )
+        return
+      }
+    }
+
     updateCardWithActivity(
       { memberIds: next },
       exists ? 'member_removed' : 'member_added',
