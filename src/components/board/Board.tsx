@@ -32,6 +32,7 @@ import {
   inviteMemberByEmailRemote,
   insertNotificationsRemote,
   loadBoardStoreFromRemote,
+  getBoardSyncStampRemote,
   recordCardActivityRemote,
   replaceBoardLabelsRemote,
   replaceBoardShareSettingsRemote,
@@ -89,6 +90,8 @@ const REALTIME_RELOAD_DEBOUNCE_MS = 250
 const MUTATION_ERROR_RESET_MS = 6000
 const REALTIME_RECONNECT_BASE_DELAY_MS = 500
 const REALTIME_RECONNECT_MAX_DELAY_MS = 4000
+const BOARD_SYNC_INTERACTION_THROTTLE_MS = 1200
+const BOARD_SYNC_HEARTBEAT_MS = 10000
 
 const EMPTY_STORE: BoardStore = {
   version: 3,
@@ -150,6 +153,16 @@ function hasColumnsOrderChanged(previousColumns: ColumnData[], nextColumns: Colu
   return false
 }
 
+function getLocalBoardSyncStamp(snapshot: BoardStore, boardId: string): number {
+  const board = snapshot.boards.find((item) => item.id === boardId)
+  if (!board?.updatedAt) {
+    return 0
+  }
+
+  const parsedStamp = Date.parse(board.updatedAt)
+  return Number.isFinite(parsedStamp) ? parsedStamp : 0
+}
+
 export default function Board({
   searchQuery,
   createBoardSignal,
@@ -175,9 +188,13 @@ export default function Board({
   const [newBoardColor, setNewBoardColor] = useState('#ff0068')
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
+  const boardInteractionRef = useRef<HTMLDivElement | null>(null)
   const realtimeDebounceTimerRef = useRef<number | null>(null)
   const pendingRealtimeRefreshRef = useRef(false)
   const isRealtimeRefreshingRef = useRef(false)
+  const stampCheckInFlightRef = useRef(false)
+  const lastStampCheckAtRef = useRef(0)
+  const boardSyncHeartbeatTimerRef = useRef<number | null>(null)
   const realtimeReconnectTimerRef = useRef<number | null>(null)
   const realtimeReconnectAttemptRef = useRef(0)
   const [realtimeSubscriptionVersion, setRealtimeSubscriptionVersion] = useState(0)
@@ -202,11 +219,16 @@ export default function Board({
       if (realtimeDebounceTimerRef.current) {
         window.clearTimeout(realtimeDebounceTimerRef.current)
       }
+      if (boardSyncHeartbeatTimerRef.current) {
+        window.clearInterval(boardSyncHeartbeatTimerRef.current)
+      }
       if (realtimeReconnectTimerRef.current) {
         window.clearTimeout(realtimeReconnectTimerRef.current)
       }
       pendingRealtimeRefreshRef.current = false
       isRealtimeRefreshingRef.current = false
+      stampCheckInFlightRef.current = false
+      lastStampCheckAtRef.current = 0
     }
   }, [])
 
@@ -436,6 +458,51 @@ export default function Board({
       }, REALTIME_RELOAD_DEBOUNCE_MS)
     }
 
+    const requestBoardStampCheck = async (source: 'interaction' | 'focus' | 'visibility' | 'heartbeat') => {
+      if (effectDisposed) {
+        return
+      }
+
+      const now = Date.now()
+      if (now - lastStampCheckAtRef.current < BOARD_SYNC_INTERACTION_THROTTLE_MS) {
+        return
+      }
+      if (stampCheckInFlightRef.current) {
+        return
+      }
+
+      lastStampCheckAtRef.current = now
+      stampCheckInFlightRef.current = true
+      const boardId = activeBoardId
+      logRealtime('interaction_stamp_check', { boardId, source })
+
+      try {
+        const [serverStamp, localStamp] = await Promise.all([
+          getBoardSyncStampRemote(boardId),
+          Promise.resolve(getLocalBoardSyncStamp(storeRef.current, boardId))
+        ])
+
+        if (serverStamp !== null && serverStamp > localStamp) {
+          logRealtime('stamp_diverged_refresh_enqueued', {
+            boardId,
+            source,
+            serverStamp,
+            localStamp
+          })
+          requestRealtimeRefresh('immediate')
+        }
+      } catch (error) {
+        console.warn('[board_sync_stamp_check_failed]', {
+          boardId,
+          source,
+          message: error instanceof Error ? error.message : 'Erro desconhecido',
+          error
+        })
+      } finally {
+        stampCheckInFlightRef.current = false
+      }
+    }
+
     const scheduleRealtimeReconnect = () => {
       if (realtimeReconnectTimerRef.current) {
         return
@@ -448,6 +515,37 @@ export default function Board({
         setRealtimeSubscriptionVersion((prev) => prev + 1)
       }, delay)
     }
+
+    const handleBoardInteraction = () => {
+      void requestBoardStampCheck('interaction')
+    }
+
+    const handleWindowFocus = () => {
+      void requestBoardStampCheck('focus')
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void requestBoardStampCheck('visibility')
+      }
+    }
+
+    const boardSurface = boardInteractionRef.current
+    if (boardSurface) {
+      boardSurface.addEventListener('pointerdown', handleBoardInteraction, { passive: true })
+      boardSurface.addEventListener('keydown', handleBoardInteraction)
+    }
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    if (boardSyncHeartbeatTimerRef.current) {
+      window.clearInterval(boardSyncHeartbeatTimerRef.current)
+    }
+    boardSyncHeartbeatTimerRef.current = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void requestBoardStampCheck('heartbeat')
+      }
+    }, BOARD_SYNC_HEARTBEAT_MS)
 
     const unsubscribe = subscribeBoardRealtimeWithOptions(activeBoardId, () => {
       requestRealtimeRefresh()
@@ -475,19 +573,33 @@ export default function Board({
       }
     })
 
+    void requestBoardStampCheck('visibility')
+
     return () => {
       effectDisposed = true
       pendingRealtimeRefreshRef.current = false
       isRealtimeRefreshingRef.current = false
+      stampCheckInFlightRef.current = false
+      lastStampCheckAtRef.current = 0
 
       if (realtimeDebounceTimerRef.current) {
         window.clearTimeout(realtimeDebounceTimerRef.current)
         realtimeDebounceTimerRef.current = null
       }
+      if (boardSyncHeartbeatTimerRef.current) {
+        window.clearInterval(boardSyncHeartbeatTimerRef.current)
+        boardSyncHeartbeatTimerRef.current = null
+      }
       if (realtimeReconnectTimerRef.current) {
         window.clearTimeout(realtimeReconnectTimerRef.current)
         realtimeReconnectTimerRef.current = null
       }
+      if (boardSurface) {
+        boardSurface.removeEventListener('pointerdown', handleBoardInteraction)
+        boardSurface.removeEventListener('keydown', handleBoardInteraction)
+      }
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       unsubscribe()
     }
   }, [activeBoardId, loadStore, realtimeSubscriptionVersion, store.currentMemberId])
@@ -1338,7 +1450,7 @@ export default function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="h-full w-full overflow-x-auto">
+        <div ref={boardInteractionRef} className="h-full w-full overflow-x-auto">
           <div className="flex min-w-max items-start gap-4 px-6 py-6">
             <SortableContext items={currentColumnIds} strategy={horizontalListSortingStrategy}>
               {currentColumns.map((column) => (

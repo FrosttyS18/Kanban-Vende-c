@@ -753,6 +753,31 @@ export async function loadBoardStoreFromRemote(
   return cloneBoardStore(result)
 }
 
+export async function getBoardSyncStampRemote(boardId: string): Promise<number | null> {
+  const normalizedBoardId = boardId.trim()
+  if (!normalizedBoardId) {
+    return null
+  }
+
+  const { data, error } = await supabase
+    .from('boards')
+    .select('updated_at')
+    .eq('id', normalizedBoardId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  const rawStamp = (data as { updated_at?: string } | null)?.updated_at
+  if (!rawStamp) {
+    return null
+  }
+
+  const parsedStamp = Date.parse(rawStamp)
+  return Number.isFinite(parsedStamp) ? parsedStamp : null
+}
+
 export async function updateBoardRemote(boardId: string, payload: { title: string; color: string }): Promise<void> {
   const { error } = await supabase.from('boards').update({ title: payload.title, color: payload.color }).eq('id', boardId)
   if (error) {
