@@ -29,6 +29,7 @@ import {
   createListRemote,
   deleteCardRemote,
   deleteListRemote,
+  inviteMemberByEmailRemote,
   insertNotificationsRemote,
   loadBoardStoreFromRemote,
   recordCardActivityRemote,
@@ -37,7 +38,7 @@ import {
   reorderListsRemote,
   setLastBoardIdRemote,
   setStoredBoardId,
-  subscribeBoardRealtime,
+  subscribeBoardRealtimeWithOptions,
   syncCardsOrderingRemote,
   updateCardFieldsRemote,
   updateListRemote,
@@ -86,6 +87,8 @@ const BOARD_COLOR_OPTIONS = [
 ]
 const REALTIME_RELOAD_DEBOUNCE_MS = 250
 const MUTATION_ERROR_RESET_MS = 6000
+const REALTIME_RECONNECT_BASE_DELAY_MS = 500
+const REALTIME_RECONNECT_MAX_DELAY_MS = 4000
 
 const EMPTY_STORE: BoardStore = {
   version: 3,
@@ -173,6 +176,9 @@ export default function Board({
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
   const realtimeReloadTimer = useRef<number | null>(null)
+  const realtimeReconnectTimerRef = useRef<number | null>(null)
+  const realtimeReconnectAttemptRef = useRef(0)
+  const [realtimeSubscriptionVersion, setRealtimeSubscriptionVersion] = useState(0)
   const operationErrorTimerRef = useRef<number | null>(null)
   const storeRef = useRef<BoardStore>(EMPTY_STORE)
   const dragSnapshotRef = useRef<{ cards: CardData[]; columns: ColumnData[] } | null>(null)
@@ -190,6 +196,9 @@ export default function Board({
     return () => {
       if (operationErrorTimerRef.current) {
         window.clearTimeout(operationErrorTimerRef.current)
+      }
+      if (realtimeReconnectTimerRef.current) {
+        window.clearTimeout(realtimeReconnectTimerRef.current)
       }
     }
   }, [])
@@ -346,14 +355,53 @@ export default function Board({
       return
     }
 
-    const unsubscribe = subscribeBoardRealtime(activeBoardId, () => {
+    const snapshot = storeRef.current
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardCards = getBoardCards(snapshot, boardColumns)
+
+    const scheduleRealtimeReconnect = () => {
+      if (realtimeReconnectTimerRef.current) {
+        return
+      }
+      realtimeReconnectAttemptRef.current += 1
+      const attempt = realtimeReconnectAttemptRef.current
+      const delay = Math.min(REALTIME_RECONNECT_MAX_DELAY_MS, REALTIME_RECONNECT_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1))
+      realtimeReconnectTimerRef.current = window.setTimeout(() => {
+        realtimeReconnectTimerRef.current = null
+        setRealtimeSubscriptionVersion((prev) => prev + 1)
+      }, delay)
+    }
+
+    const unsubscribe = subscribeBoardRealtimeWithOptions(activeBoardId, () => {
       if (realtimeReloadTimer.current) {
         window.clearTimeout(realtimeReloadTimer.current)
       }
       realtimeReloadTimer.current = window.setTimeout(() => {
         void loadStore(activeBoardId, { forceRefresh: true, silent: true })
       }, REALTIME_RELOAD_DEBOUNCE_MS)
-    }, store.currentMemberId)
+    }, {
+      currentUserId: store.currentMemberId,
+      initialScope: {
+        listIds: boardColumns.map((column) => column.id),
+        cardIds: boardCards.map((card) => card.id),
+        checklistIds: boardCards.flatMap((card) => card.checklists.map((checklist) => `${card.id}:${checklist.id}`))
+      },
+      onSubscribed: () => {
+        realtimeReconnectAttemptRef.current = 0
+        if (realtimeReconnectTimerRef.current) {
+          window.clearTimeout(realtimeReconnectTimerRef.current)
+          realtimeReconnectTimerRef.current = null
+        }
+      },
+      onChannelIssue: (status) => {
+        console.warn('[realtime_channel_issue]', {
+          boardId: activeBoardId,
+          status
+        })
+        void loadStore(activeBoardId, { forceRefresh: true, silent: true })
+        scheduleRealtimeReconnect()
+      }
+    })
 
     return () => {
       if (realtimeReloadTimer.current) {
@@ -362,7 +410,7 @@ export default function Board({
       }
       unsubscribe()
     }
-  }, [activeBoardId, loadStore, store.currentMemberId])
+  }, [activeBoardId, loadStore, realtimeSubscriptionVersion, store.currentMemberId])
 
   const filteredCards = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -788,31 +836,18 @@ export default function Board({
     })
   }
 
-  const inviteMemberByEmail = (email: string, permission: 'view' | 'edit'): { ok: boolean; message?: string } => {
-    const snapshot = storeRef.current
-    const normalizedEmail = email.trim().toLowerCase()
-    const boardShare = snapshot.shareByBoard[activeBoardId]
-    if (!boardShare) {
-      return { ok: false, message: 'Board sem configuracao de compartilhamento.' }
+  const inviteMemberByEmail = async (email: string, permission: 'view' | 'edit'): Promise<{ ok: boolean; message?: string }> => {
+    if (!activeBoardId) {
+      return { ok: false, message: 'Board nao encontrado.' }
     }
 
-    const existingMember = snapshot.members.find((member) => member.email.toLowerCase() === normalizedEmail)
-    if (!existingMember) {
-      return { ok: false, message: 'Este usuário ainda não acessou o sistema.' }
+    const result = await inviteMemberByEmailRemote(activeBoardId, email, permission)
+    if (!result.ok) {
+      return result
     }
 
-    const hasAccessAlready = boardShare.members.some((entry) => entry.memberId === existingMember.id)
-    if (hasAccessAlready) {
-      return { ok: false, message: 'Este e-mail ja possui acesso.' }
-    }
-
-    const nextSettings: BoardShareSettings = {
-      ...boardShare,
-      members: [...boardShare.members, { memberId: existingMember.id, permission }]
-    }
-    updateShareSettings(nextSettings)
-
-    return { ok: true }
+    await loadStore(activeBoardId, { forceRefresh: true, silent: true })
+    return result
   }
 
   const onDragStart = (event: DragStartEvent) => {
@@ -1122,7 +1157,20 @@ export default function Board({
     )
   }
 
+  const hasBoardInRoute = Boolean(selectedBoardId?.trim())
+
   if (store.boards.length === 0) {
+    if (hasBoardInRoute) {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
+          <p className="text-sm text-[#d1d1d1]">Você precisa de permissão do administrador para ter acesso a este Board.</p>
+          <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={() => void loadStore(undefined, { forceRefresh: true })}>
+            Tentar novamente
+          </Button>
+        </div>
+      )
+    }
+
     return (
       <>
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-4 text-center">
@@ -1399,6 +1447,7 @@ export default function Board({
           isOpen={isShareBoardOpen}
           board={currentBoard}
           members={store.members}
+          currentMemberId={store.currentMemberId}
           ownerMemberId={ownerMemberId}
           shareSettings={shareSettings}
           onClose={() => setDismissedShareSignal(shareBoardSignal)}
@@ -1409,6 +1458,3 @@ export default function Board({
     </div>
   )
 }
-
-
-

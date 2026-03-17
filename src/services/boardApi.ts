@@ -235,6 +235,12 @@ async function ensureCurrentProfile(): Promise<{ id: string; email: string; last
   if (error) {
     throw new Error(error.message)
   }
+
+  const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
+  if (syncInvitesError) {
+    throw new Error(syncInvitesError.message)
+  }
+
   const row = data as { id: string; email: string; last_board_id: string | null } | null
   return {
     id: user.id,
@@ -470,9 +476,11 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<Boar
   const profileIds = Array.from(profileIdSet)
 
   const profilesResult =
-    profileIds.length > 0
-      ? await supabase.from('profiles').select('id,email,full_name').in('id', profileIds)
-      : { data: [], error: null as { message: string } | null }
+    resolvedBoardRow && profileIds.length > 0
+      ? await supabase.rpc('list_board_profiles', { p_board_id: resolvedBoardRow.id })
+      : profileIds.length > 0
+        ? await supabase.from('profiles').select('id,email,full_name').eq('id', currentUserId)
+        : { data: [], error: null as { message: string } | null }
 
   if (profilesResult.error) {
     throw new Error(profilesResult.error.message)
@@ -1261,36 +1269,46 @@ export async function replaceBoardShareSettingsRemote(boardId: string, ownerMemb
 
 export async function inviteMemberByEmailRemote(boardId: string, email: string, permission: SharePermission): Promise<{ ok: boolean; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase()
-  const { data: profileRows, error: profileError } = await supabase
-    .from('profiles')
-    .select('id,email')
-    .ilike('email', normalizedEmail)
-    .limit(1)
+  const { data, error } = await supabase.rpc('invite_board_member_by_email', {
+    p_board_id: boardId,
+    p_email: normalizedEmail,
+    p_permission: permission
+  })
 
-  if (profileError) {
-    return { ok: false, message: profileError.message }
+  if (error) {
+    return { ok: false, message: error.message }
   }
 
-  const target = (profileRows as Array<{ id: string; email: string }> | null)?.[0]
-  if (!target?.id || !isUuid(target.id)) {
-    return { ok: false, message: 'Este usuário ainda não acessou o sistema.' }
-  }
-
-  const { error: upsertError } = await supabase.from('board_members').upsert(
-    {
-      board_id: boardId,
-      user_id: target.id,
-      permission
-    },
-    { onConflict: 'board_id,user_id' }
-  )
-
-  if (upsertError) {
-    return { ok: false, message: upsertError.message }
+  const row = Array.isArray(data) ? data[0] : null
+  if (!row?.ok) {
+    const reason = typeof row?.message === 'string' ? row.message : ''
+    if (reason === 'forbidden') {
+      return { ok: false, message: 'Somente o owner pode convidar participantes.' }
+    }
+    if (reason === 'board_not_found') {
+      return { ok: false, message: 'Board nao encontrado.' }
+    }
+    if (reason === 'email_required') {
+      return { ok: false, message: 'Informe um e-mail valido.' }
+    }
+    if (reason === 'invalid_domain') {
+      return { ok: false, message: 'Use um e-mail corporativo @vende-c.com.' }
+    }
+    if (reason === 'owner_already_member') {
+      return { ok: false, message: 'Este e-mail ja possui acesso.' }
+    }
+    return { ok: false, message: 'Nao foi possivel adicionar este e-mail.' }
   }
 
   invalidateBoardStoreCache(boardId)
-  return { ok: true }
+  const messageCode = typeof row?.message === 'string' ? row.message : ''
+  if (messageCode === 'invitation_created') {
+    return { ok: true, message: 'Convite enviado. O acesso sera liberado no primeiro login.' }
+  }
+  if (messageCode === 'member_added') {
+    return { ok: true, message: 'Participante adicionado com sucesso.' }
+  }
+  return { ok: true, message: 'Compartilhamento atualizado com sucesso.' }
 }
 
 export async function syncCardsOrderingRemote(boardId: string, columns: ColumnData[], cards: CardData[]): Promise<void> {
@@ -1372,6 +1390,21 @@ type RealtimePayload = {
   old?: Record<string, unknown>
 }
 
+type RealtimeStatus = 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED'
+
+type RealtimeScope = {
+  listIds?: string[]
+  cardIds?: string[]
+  checklistIds?: string[]
+}
+
+type RealtimeSubscribeOptions = {
+  currentUserId?: string
+  initialScope?: RealtimeScope
+  onChannelIssue?: (status: Exclude<RealtimeStatus, 'SUBSCRIBED'>) => void
+  onSubscribed?: () => void
+}
+
 function getPayloadString(payload: RealtimePayload, key: string): string | undefined {
   const nextValue = payload.new?.[key]
   if (typeof nextValue === 'string' && nextValue.length > 0) {
@@ -1398,11 +1431,16 @@ function syncScopedId(set: Set<string>, id: string | undefined, eventType: strin
 }
 
 export function subscribeBoardRealtime(boardId: string, onChange: RealtimeCallback, currentUserId?: string): () => void {
+  return subscribeBoardRealtimeWithOptions(boardId, onChange, { currentUserId })
+}
+
+export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: RealtimeCallback, options?: RealtimeSubscribeOptions): () => void {
   const channel = supabase.channel(`board-sync-${boardId}-${Date.now()}`)
-  const scopedListIds = new Set<string>()
-  const scopedCardIds = new Set<string>()
-  const scopedChecklistIds = new Set<string>()
+  const scopedListIds = new Set<string>(options?.initialScope?.listIds ?? [])
+  const scopedCardIds = new Set<string>(options?.initialScope?.cardIds ?? [])
+  const scopedChecklistIds = new Set<string>(options?.initialScope?.checklistIds ?? [])
   let disposed = false
+  let hasIssuedErrorSignal = false
 
   const seedScope = async () => {
     const { data: listRows, error: listError } = await supabase.from('lists').select('id').eq('board_id', boardId)
@@ -1434,19 +1472,42 @@ export function subscribeBoardRealtime(boardId: string, onChange: RealtimeCallba
       return
     }
 
-    ;((checklistRows as Array<{ id: string; card_id: string }> | null) ?? [])
-      .filter((row) => scopedCardIds.has(row.card_id))
-      .forEach((row) => scopedChecklistIds.add(row.id))
+      ;((checklistRows as Array<{ id: string; card_id: string }> | null) ?? [])
+        .filter((row) => scopedCardIds.has(row.card_id))
+        .forEach((row) => scopedChecklistIds.add(`${row.card_id}:${row.id}`))
+  }
+
+  const notifyChannelIssue = (status: Exclude<RealtimeStatus, 'SUBSCRIBED'>) => {
+    if (hasIssuedErrorSignal) {
+      return
+    }
+    hasIssuedErrorSignal = true
+    options?.onChannelIssue?.(status)
   }
 
   const isScopedCardEvent = (payload: RealtimePayload): boolean => {
     const listId = getPayloadString(payload, 'list_id')
     const cardId = getPayloadString(payload, 'id')
-    if (!listId || !scopedListIds.has(listId)) {
+    const isKnownCard = Boolean(cardId && scopedCardIds.has(cardId))
+    const isInCurrentBoardList = Boolean(listId && scopedListIds.has(listId))
+
+    if (!isInCurrentBoardList && !isKnownCard) {
+      if (!listId && !cardId) {
+        onChange()
+      }
       return false
     }
 
     syncScopedId(scopedCardIds, cardId, payload.eventType)
+    if (payload.eventType === 'DELETE' && cardId) {
+      const checklistIdsToDelete: string[] = []
+      scopedChecklistIds.forEach((checklistId) => {
+        if (checklistId.startsWith(`${cardId}:`)) {
+          checklistIdsToDelete.push(checklistId)
+        }
+      })
+      checklistIdsToDelete.forEach((checklistId) => scopedChecklistIds.delete(checklistId))
+    }
     return true
   }
 
@@ -1495,28 +1556,47 @@ export function subscribeBoardRealtime(boardId: string, onChange: RealtimeCallba
     if (!isScopedCardChildEvent(typedPayload)) {
       return
     }
-    syncScopedId(scopedChecklistIds, checklistId, typedPayload.eventType)
+    const cardId = getPayloadString(typedPayload, 'card_id')
+    if (checklistId && cardId) {
+      const scopedChecklistId = `${cardId}:${checklistId}`
+      syncScopedId(scopedChecklistIds, scopedChecklistId, typedPayload.eventType)
+    }
     onChange()
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, (payload) => {
-    const checklistId = getPayloadString(payload as RealtimePayload, 'checklist_id')
-    if (checklistId && scopedChecklistIds.has(checklistId)) {
+    const typedPayload = payload as RealtimePayload
+    const checklistId = getPayloadString(typedPayload, 'checklist_id')
+    if (!checklistId) {
+      onChange()
+      return
+    }
+    const hasChecklistInScope = Array.from(scopedChecklistIds).some((value) => value.endsWith(`:${checklistId}`))
+    if (hasChecklistInScope) {
       onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
-    if (!currentUserId) {
+    if (!options?.currentUserId) {
       onChange()
       return
     }
 
     const userId = getPayloadString(payload as RealtimePayload, 'user_id')
-    if (userId === currentUserId) {
+    if (userId === options.currentUserId) {
       onChange()
     }
   })
 
-  channel.subscribe()
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      hasIssuedErrorSignal = false
+      options?.onSubscribed?.()
+      return
+    }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      notifyChannelIssue(status)
+    }
+  })
   void seedScope()
 
   return () => {

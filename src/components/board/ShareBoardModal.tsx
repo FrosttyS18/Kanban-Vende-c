@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Copy, Link2, Mail, Trash2, UserPlus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,11 +8,12 @@ type ShareBoardModalProps = {
   isOpen: boolean
   board: BoardData
   members: Member[]
+  currentMemberId: string
   ownerMemberId: string
   shareSettings: BoardShareSettings
   onClose: () => void
   onChange: (next: BoardShareSettings) => void
-  onInviteByEmail: (email: string, permission: SharePermission) => { ok: boolean; message?: string }
+  onInviteByEmail: (email: string, permission: SharePermission) => Promise<{ ok: boolean; message?: string }>
 }
 
 function getShareLink(boardId: string, token: string, allowLinkAccess: boolean): string {
@@ -110,39 +111,55 @@ function CustomSelect({ value, options, onChange, buttonClassName = '', menuClas
   )
 }
 
-export default function ShareBoardModal({ isOpen, board, members, ownerMemberId, shareSettings, onClose, onChange, onInviteByEmail }: ShareBoardModalProps) {
+export default function ShareBoardModal({ isOpen, board, members, currentMemberId, ownerMemberId, shareSettings, onClose, onChange, onInviteByEmail }: ShareBoardModalProps) {
   const [inviteEmail, setInviteEmail] = useState('')
-  const [permission, setPermission] = useState<SharePermission>('view')
+  const [permission, setPermission] = useState<SharePermission>('edit')
+  const [isInviting, setIsInviting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [inviteError, setInviteError] = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState('')
 
+  const canManageShare = currentMemberId === ownerMemberId
   const shareLink = getShareLink(board.id, shareSettings.linkToken, shareSettings.allowLinkAccess)
 
   if (!isOpen) {
     return null
   }
 
-  const addMember = () => {
+  const addMember = async () => {
     const normalizedEmail = inviteEmail.trim().toLowerCase()
     if (!normalizedEmail) {
       setInviteError('Informe um e-mail para convidar.')
+      setInviteSuccess('')
       return
     }
 
     if (!isValidEmail(normalizedEmail)) {
-      setInviteError('Digite um e-mail válido.')
+      setInviteError('Digite um e-mail valido.')
+      setInviteSuccess('')
       return
     }
 
-    const inviteResult = onInviteByEmail(normalizedEmail, permission)
+    if (!canManageShare) {
+      setInviteError('Somente o owner pode gerenciar compartilhamento.')
+      setInviteSuccess('')
+      return
+    }
+
+    setIsInviting(true)
+    const inviteResult = await onInviteByEmail(normalizedEmail, permission)
+    setIsInviting(false)
+
     if (!inviteResult.ok) {
-      setInviteError(inviteResult.message ?? 'Não foi possível adicionar este e-mail.')
+      setInviteError(inviteResult.message ?? 'Nao foi possivel adicionar este e-mail.')
+      setInviteSuccess('')
       return
     }
 
     setInviteError('')
+    setInviteSuccess(inviteResult.message ?? 'Compartilhamento atualizado com sucesso.')
     setInviteEmail('')
-    setPermission('view')
+    setPermission('edit')
   }
 
   return (
@@ -151,7 +168,7 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
         <div className="mb-5 flex items-start justify-between">
           <div>
             <h2 className="text-[30px] font-semibold leading-tight text-white">Compartilhar "{board.title}"</h2>
-            <p className="mt-1 text-sm text-[#bcbcbc]">Adicione pessoas, ajuste permissões e controle o acesso do link.</p>
+            <p className="mt-1 text-sm text-[#bcbcbc]">Adicione pessoas, ajuste permissoes e controle o acesso do link.</p>
           </div>
           <Button variant="ghost" size="icon" className="text-[#d1d1d1] hover:bg-white/10" onClick={onClose}>
             <X className="size-4" />
@@ -160,7 +177,7 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
 
         <section className="mt-1">
           <label htmlFor="share-invite-email" className="text-sm font-medium text-[#d9d9d9]">
-            Adicionar participantes por e-mail ou domínio
+            Adicionar participante por e-mail corporativo
           </label>
           <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[1fr_170px_130px]">
             <Input
@@ -171,13 +188,17 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
                 if (inviteError) {
                   setInviteError('')
                 }
+                if (inviteSuccess) {
+                  setInviteSuccess('')
+                }
               }}
-              placeholder="exemplo@empresa.com"
+              placeholder="nome@vende-c.com"
               className="h-11 border-white/20 bg-black text-sm text-white placeholder:text-[#8b8b8b] focus-visible:ring-2 focus-visible:ring-primary"
+              disabled={!canManageShare}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  addMember()
+                  void addMember()
                 }
               }}
             />
@@ -188,13 +209,15 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
                 { value: 'view', label: 'Visualizar' },
                 { value: 'edit', label: 'Editar' }
               ]}
+              buttonClassName={!canManageShare ? 'pointer-events-none opacity-60' : ''}
             />
-            <Button className="h-11 bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60" onClick={addMember} disabled={!inviteEmail.trim()}>
+            <Button className="h-11 bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void addMember()} disabled={!inviteEmail.trim() || isInviting || !canManageShare}>
               <UserPlus className="mr-1 size-4" />
-              Adicionar
+              {isInviting ? 'Adicionando...' : 'Adicionar'}
             </Button>
           </div>
           {inviteError && <p className="mt-2 text-sm text-[#ff8fae]">{inviteError}</p>}
+          {inviteSuccess && <p className="mt-2 text-sm text-[#86efac]">{inviteSuccess}</p>}
         </section>
 
         <section className="mt-6 border-t border-white/10 pt-5">
@@ -270,36 +293,42 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
                   <div className="min-w-34">
                     <CustomSelect
                       value={sharedMember.permission}
-                      onChange={(nextValue) =>
+                      onChange={(nextValue) => {
+                        if (!canManageShare) {
+                          return
+                        }
                         onChange({
                           ...shareSettings,
                           members: shareSettings.members.map((entry) =>
                             entry.memberId === member.id ? { ...entry, permission: nextValue as SharePermission } : entry
                           )
                         })
-                      }
+                      }}
                       options={[
                         { value: 'view', label: 'Visualizar' },
                         { value: 'edit', label: 'Editar' }
                       ]}
-                      buttonClassName="h-9 pl-2.5 pr-10 text-sm"
+                      buttonClassName={`h-9 pl-2.5 pr-10 text-sm ${!canManageShare ? 'pointer-events-none opacity-60' : ''}`}
                     />
                   </div>
                   <Button
                     variant="ghost"
                     size="icon"
                     className={`size-8 ${
-                      shareSettings.members.length <= 1 || member.id === ownerMemberId
+                      shareSettings.members.length <= 1 || member.id === ownerMemberId || !canManageShare
                         ? 'cursor-not-allowed text-[#6f6f6f]'
                         : 'text-red-300 hover:bg-red-500/10 hover:text-red-200'
                     }`}
-                    disabled={shareSettings.members.length <= 1 || member.id === ownerMemberId}
-                    onClick={() =>
+                    disabled={shareSettings.members.length <= 1 || member.id === ownerMemberId || !canManageShare}
+                    onClick={() => {
+                      if (!canManageShare) {
+                        return
+                      }
                       onChange({
                         ...shareSettings,
                         members: shareSettings.members.filter((entry) => entry.memberId !== member.id)
                       })
-                    }
+                    }}
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -326,19 +355,24 @@ export default function ShareBoardModal({ isOpen, board, members, ownerMemberId,
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white">{shareSettings.allowLinkAccess ? 'Qualquer pessoa com o link' : 'Restrito'}</p>
                   <p className="truncate text-sm text-[#bcbcbc]">
-                    {shareSettings.allowLinkAccess ? 'Pessoas com o link podem visualizar este board.' : 'Somente pessoas adicionadas podem abrir o board.'}
+                    {shareSettings.allowLinkAccess ? 'Pessoas com o link podem editar este board.' : 'Somente pessoas adicionadas podem abrir o board.'}
                   </p>
                 </div>
               </div>
               <div className="min-w-46">
                 <CustomSelect
                   value={shareSettings.allowLinkAccess ? 'link' : 'restricted'}
-                  onChange={(nextValue) => onChange({ ...shareSettings, allowLinkAccess: nextValue === 'link' })}
+                  onChange={(nextValue) => {
+                    if (!canManageShare) {
+                      return
+                    }
+                    onChange({ ...shareSettings, allowLinkAccess: nextValue === 'link' })
+                  }}
                   options={[
                     { value: 'restricted', label: 'Restrito' },
                     { value: 'link', label: 'Qualquer pessoa com o link' }
                   ]}
-                  buttonClassName="h-9 pl-3 pr-10"
+                  buttonClassName={`h-9 pl-3 pr-10 ${!canManageShare ? 'pointer-events-none opacity-60' : ''}`}
                 />
               </div>
             </div>
