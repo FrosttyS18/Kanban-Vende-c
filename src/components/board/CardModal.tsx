@@ -7,6 +7,7 @@ import ChecklistBlock from '@/components/board/card-modal/ChecklistBlock'
 import DescriptionEditor from '@/components/board/card-modal/DescriptionEditor'
 import LabelsPopover from '@/components/board/card-modal/LabelsPopover'
 import DatePopover from '@/components/board/card-modal/DatePopover'
+import { isAllowedCardActivityEvent } from '@/constants/activityEvents'
 import { normalizeMojibake } from '@/utils/normalizeMojibake'
 
 type CardModalProps = {
@@ -557,6 +558,10 @@ export default function CardModal({
     message: string,
     options?: { activityType?: RecordCardActivityInput['activityType']; dedupeWindowMinutes?: number }
   ) => {
+    if (!isAllowedCardActivityEvent(eventType)) {
+      return
+    }
+
     const normalizedMessage = message.trim()
     if (!normalizedMessage) {
       return
@@ -968,11 +973,7 @@ export default function CardModal({
 
   const dueStatus = getDueStatus(cardState.dueDate, cardState.isCompleted)
   const currentList = listOptions.find((item) => item.id === cardState.listId)?.title ?? listTitle
-  const timeline = cardState.activities.length
-    ? cardState.activities
-    : actor
-      ? [{ id: 'default-system', type: 'system' as const, actorId: actor.id, actorName: actor.name, actorInitials: actor.initials, message: `adicionou este cartão a ${currentList}.`, createdAt: cardState.createdAt }]
-      : []
+  const timeline = cardState.activities
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cartão'}>

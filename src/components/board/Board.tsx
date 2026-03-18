@@ -19,6 +19,7 @@ import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
 import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
+import { isAllowedCardActivityEvent } from '@/constants/activityEvents'
 import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type GlobalUserRole, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import {
@@ -657,6 +658,10 @@ export default function Board({
 
   const recordActivity = useCallback(
     (cardId: string, eventType: CardActivityEventType, message: string, options?: { activityType?: RecordCardActivityInput['activityType']; dedupeWindowMinutes?: number }) => {
+      if (!isAllowedCardActivityEvent(eventType)) {
+        return
+      }
+
       const normalizedMessage = message.trim()
       if (!normalizedMessage) {
         return
