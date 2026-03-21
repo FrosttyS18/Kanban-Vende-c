@@ -1,9 +1,12 @@
-﻿import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
+﻿import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Crown, Lock, Plus, Settings2, SquareKanban } from 'lucide-react'
-import { type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole } from '@/types'
+import { ArrowLeft, Crown, Lock, Plus, RotateCcw, Settings2, SquareKanban, Trash2 } from 'lucide-react'
+import archivedIcon from '@/assets/icons/icon-arquivados.svg'
+import membersIcon from '@/assets/icons/icon-membros.svg'
+import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
+import { type ArchivedCardData, type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole } from '@/types'
 
 type SidebarProps = {
   boards: BoardCatalogItem[]
@@ -48,6 +51,8 @@ type ContextMenuState = {
   top: number
   left: number
 }
+
+type SettingsView = 'hub' | 'members' | 'archived'
 
 type SortableBoardButtonProps = {
   board: BoardCatalogItem
@@ -105,10 +110,16 @@ export default function Sidebar({
   const [colorDraft, setColorDraft] = useState(BOARD_COLOR_OPTIONS[0])
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsView, setSettingsView] = useState<SettingsView>('hub')
   const [roleEmailDraft, setRoleEmailDraft] = useState('')
   const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
+  const [archivedCards, setArchivedCards] = useState<ArchivedCardData[]>([])
+  const [isLoadingArchivedCards, setIsLoadingArchivedCards] = useState(false)
+  const [archivedCardsError, setArchivedCardsError] = useState<string | null>(null)
+  const [restoringCardId, setRestoringCardId] = useState<string | null>(null)
+  const [deletingArchivedCardId, setDeletingArchivedCardId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -118,8 +129,73 @@ export default function Sidebar({
 
   const editingBoard = editingBoardId ? boards.find((item) => item.id === editingBoardId) ?? null : null
   const deletingBoard = deletingBoardId ? boards.find((item) => item.id === deletingBoardId) ?? null : null
+  const isAdmin = currentUserRole === 'admin'
+
+  const loadArchivedCards = useCallback(async () => {
+    setIsLoadingArchivedCards(true)
+    setArchivedCardsError(null)
+    try {
+      const store = await loadBoardStoreFromRemote(undefined, { forceRefresh: true, bypassInFlight: true })
+      setArchivedCards(store.archivedCards)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os cards arquivados.'
+      setArchivedCardsError(message)
+    } finally {
+      setIsLoadingArchivedCards(false)
+    }
+  }, [])
+
+  const openSettings = () => {
+    setIsSettingsOpen(true)
+    setSettingsView('hub')
+    setSettingsError('')
+    setSettingsMessage('')
+    void onRefreshGlobalRoles()
+  }
+
+  const openSettingsView = (view: SettingsView) => {
+    setSettingsView(view)
+    if (view === 'archived') {
+      void loadArchivedCards()
+    }
+    if (view === 'members') {
+      void onRefreshGlobalRoles()
+    }
+  }
+
+  const handleRestoreArchivedCard = async (cardId: string) => {
+    setRestoringCardId(cardId)
+    try {
+      await restoreArchivedCardRemote(cardId)
+      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel restaurar o card arquivado.'
+      setArchivedCardsError(message)
+    } finally {
+      setRestoringCardId(null)
+    }
+  }
+
+  const handleDeleteArchivedCard = async (cardId: string) => {
+    setDeletingArchivedCardId(cardId)
+    try {
+      await deleteCardRemote(cardId)
+      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nao foi possivel excluir o card arquivado.'
+      setArchivedCardsError(message)
+    } finally {
+      setDeletingArchivedCardId(null)
+    }
+  }
 
   const handleApplyRoleByEmail = async () => {
+    if (!isAdmin) {
+      setSettingsError('Somente administradores podem alterar cargos globais.')
+      setSettingsMessage('')
+      return
+    }
+
     const email = roleEmailDraft.trim().toLowerCase()
     if (!email) {
       setSettingsError('Informe um e-mail corporativo.')
@@ -239,24 +315,17 @@ export default function Sidebar({
         </DndContext>
       </div>
 
-      {currentUserRole === 'admin' && (
-        <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
-          <button
-            type="button"
-            onClick={() => {
-              setIsSettingsOpen(true)
-              setSettingsError('')
-              setSettingsMessage('')
-              onRefreshGlobalRoles()
-            }}
-            className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
-            aria-label="Configurações"
-          >
-            <Settings2 className="size-4 text-[#d1d1d1]" />
-            Configurações
-          </button>
-        </div>
-      )}
+      <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
+        <button
+          type="button"
+          onClick={openSettings}
+          className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
+          aria-label="Configurações"
+        >
+          <Settings2 className="size-4 text-[#d1d1d1]" />
+          Configurações
+        </button>
+      </div>
 
       {contextMenu && (
         <div ref={menuRef} style={{ top: contextMenu.top, left: contextMenu.left }} className="fixed z-80 w-44 rounded-lg border border-white/10 bg-[#242528] p-1.5 shadow-xl">
@@ -419,97 +488,232 @@ export default function Sidebar({
         </div>
       )}
 
-      {isSettingsOpen && currentUserRole === 'admin' && (
+      {isSettingsOpen && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Configurações">
-          <div className="w-full max-w-180 rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
-            <>
-              <h2 className="text-lg font-semibold text-white">Configurações de Administração</h2>
-              <p className="mt-2 text-sm text-[#d1d1d1]">Gerencie quais usuários podem criar boards e administrar cargos globais.</p>
-
-              <div className="mt-5 rounded-xl border border-white/10 bg-[#242528] p-4">
-                <p className="text-sm font-semibold text-white">Alterar cargo por e-mail</p>
-                <div className="mt-3 flex flex-col gap-2 md:flex-row">
-                  <input
-                    value={roleEmailDraft}
-                    onChange={(event) => {
-                      setRoleEmailDraft(event.target.value)
-                      if (settingsError) {
-                        setSettingsError('')
-                      }
-                      if (settingsMessage) {
-                        setSettingsMessage('')
-                      }
-                    }}
-                    placeholder="nome@vende-c.com"
-                    className="h-10 w-full rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-primary"
-                  />
-                  <select
-                    value={roleDraft}
-                    onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
-                    className="h-10 rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none"
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="member">Member</option>
-                  </select>
+          <div className="flex max-h-[calc(100vh-32px)] w-full max-w-180 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+            {settingsView === 'hub' && (
+              <>
+                <h2 className="text-lg font-semibold text-white">Configurações</h2>
+                <p className="mt-2 text-sm text-[#d1d1d1]">Selecione uma função para continuar.</p>
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
                   <button
                     type="button"
-                    onClick={() => void handleApplyRoleByEmail()}
-                    disabled={isManagingRoles}
-                    className="h-10 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => openSettingsView('archived')}
+                    className="flex h-20 items-center justify-between rounded-2xl bg-[#d9d9d9] px-4 text-left transition-transform hover:scale-[1.01]"
                   >
-                    Aplicar
+                    <div className="flex items-center gap-3">
+                      <img src={archivedIcon} alt="Ícone de arquivados" className="size-8" />
+                      <span className="text-[22px] font-medium text-primary">Arquivados</span>
+                    </div>
+                    <span className="inline-flex size-11 items-center justify-center rounded-full bg-black text-3xl leading-none text-primary">›</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openSettingsView('members')}
+                    className="flex h-20 items-center justify-between rounded-2xl bg-[#d9d9d9] px-4 text-left transition-transform hover:scale-[1.01]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <img src={membersIcon} alt="Ícone de membros" className="size-8" />
+                      <span className="text-[22px] font-medium text-primary">Membros</span>
+                    </div>
+                    <span className="inline-flex size-11 items-center justify-center rounded-full bg-black text-3xl leading-none text-primary">›</span>
                   </button>
                 </div>
-                {settingsError && <p className="mt-2 text-sm text-[#ff9ab8]">{settingsError}</p>}
-                {settingsMessage && <p className="mt-2 text-sm text-[#86efac]">{settingsMessage}</p>}
-              </div>
+              </>
+            )}
 
-              <div className="mt-4 max-h-84 overflow-y-auto rounded-xl border border-white/10 bg-[#242528] p-2">
-                {globalRoleUsers.length === 0 ? (
-                  <p className="px-2 py-3 text-sm text-[#bcbcbc]">Nenhum usuário encontrado.</p>
-                ) : (
-                  globalRoleUsers.map((user) => {
-                    const targetRole: GlobalUserRole = user.roleGlobal === 'admin' ? 'member' : 'admin'
-                    return (
-                      <div key={user.id} className="flex items-center gap-3 border-b border-white/10 px-2 py-3 last:border-b-0">
-                        <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary/20 text-xs font-semibold text-white">
-                          {user.fullName.slice(0, 2).toUpperCase()}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">{user.fullName}</p>
-                          <p className="truncate text-xs text-[#bcbcbc]">{user.email}</p>
-                        </div>
-                        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${user.roleGlobal === 'admin' ? 'bg-[#ff0068]/20 text-[#ff8fbf]' : 'bg-white/10 text-[#d1d1d1]'}`}>
-                          {user.roleGlobal === 'admin' ? 'Admin' : 'Member'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void onSetGlobalRole(user.email, targetRole).then((result) => {
-                              if (result.ok) {
-                                setSettingsError('')
-                                setSettingsMessage(result.message)
-                              } else {
-                                setSettingsError(result.message)
-                                setSettingsMessage('')
-                              }
-                            })
-                          }}
-                          disabled={isManagingRoles}
-                          className="h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {targetRole === 'admin' ? (
-                            <span className="inline-flex items-center gap-1"><Crown className="size-3" />Promover</span>
-                          ) : (
-                            'Rebaixar'
-                          )}
-                        </button>
-                      </div>
-                    )
-                  })
+            {settingsView === 'members' && (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('hub')}
+                    className="inline-flex size-8 items-center justify-center rounded-md border border-white/20 text-[#d1d1d1] hover:bg-white/10"
+                    aria-label="Voltar para configurações"
+                  >
+                    <ArrowLeft className="size-4" />
+                  </button>
+                  <h2 className="text-lg font-semibold text-white">Configurações de Administração</h2>
+                </div>
+                <p className="mt-2 text-sm text-[#d1d1d1]">Gerencie quais usuários podem criar boards e administrar cargos globais.</p>
+                {!isAdmin && (
+                  <p className="mt-2 text-sm text-[#d1d1d1]">Somente administradores podem alterar cargos globais.</p>
                 )}
-              </div>
-            </>
+
+                <div className="mt-5 rounded-xl border border-white/10 bg-[#242528] p-4">
+                  <p className="text-sm font-semibold text-white">Alterar cargo por e-mail</p>
+                  <div className="mt-3 flex flex-col gap-2 md:flex-row">
+                    <input
+                      value={roleEmailDraft}
+                      onChange={(event) => {
+                        setRoleEmailDraft(event.target.value)
+                        if (settingsError) {
+                          setSettingsError('')
+                        }
+                        if (settingsMessage) {
+                          setSettingsMessage('')
+                        }
+                      }}
+                      placeholder="nome@vende-c.com"
+                      disabled={!isAdmin || isManagingRoles}
+                      className="h-10 w-full rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <select
+                      value={roleDraft}
+                      onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
+                      disabled={!isAdmin || isManagingRoles}
+                      className="h-10 rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="admin">Admin</option>
+                      <option value="member">Member</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleApplyRoleByEmail()}
+                      disabled={!isAdmin || isManagingRoles}
+                      className="h-10 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
+                  {settingsError && <p className="mt-2 text-sm text-[#ff9ab8]">{settingsError}</p>}
+                  {settingsMessage && <p className="mt-2 text-sm text-[#86efac]">{settingsMessage}</p>}
+                </div>
+
+                <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-[#242528] p-2">
+                  {globalRoleUsers.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-[#bcbcbc]">Nenhum usuário encontrado.</p>
+                  ) : (
+                    globalRoleUsers.map((user) => {
+                      const targetRole: GlobalUserRole = user.roleGlobal === 'admin' ? 'member' : 'admin'
+                      return (
+                        <div key={user.id} className="flex items-center gap-3 border-b border-white/10 px-2 py-3 last:border-b-0">
+                          <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary/20 text-xs font-semibold text-white">
+                            {user.fullName.slice(0, 2).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{user.fullName}</p>
+                            <p className="truncate text-xs text-[#bcbcbc]">{user.email}</p>
+                          </div>
+                          <span className={`rounded-md px-2 py-1 text-xs font-semibold ${user.roleGlobal === 'admin' ? 'bg-[#ff0068]/20 text-[#ff8fbf]' : 'bg-white/10 text-[#d1d1d1]'}`}>
+                            {user.roleGlobal === 'admin' ? 'Admin' : 'Member'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isAdmin) {
+                                return
+                              }
+                              void onSetGlobalRole(user.email, targetRole).then((result) => {
+                                if (result.ok) {
+                                  setSettingsError('')
+                                  setSettingsMessage(result.message)
+                                } else {
+                                  setSettingsError(result.message)
+                                  setSettingsMessage('')
+                                }
+                              })
+                            }}
+                            disabled={!isAdmin || isManagingRoles}
+                            className="h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {targetRole === 'admin' ? (
+                              <span className="inline-flex items-center gap-1"><Crown className="size-3" />Promover</span>
+                            ) : (
+                              'Rebaixar'
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )}
+
+            {settingsView === 'archived' && (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('hub')}
+                    className="inline-flex size-8 items-center justify-center rounded-md border border-white/20 text-[#d1d1d1] hover:bg-white/10"
+                    aria-label="Voltar para configurações"
+                  >
+                    <ArrowLeft className="size-4" />
+                  </button>
+                  <h2 className="text-lg font-semibold text-white">Arquivados</h2>
+                </div>
+                <p className="mt-2 text-sm text-[#d1d1d1]">Visualize, restaure ou exclua cards arquivados.</p>
+
+                <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-[#242528] p-3">
+                  {isLoadingArchivedCards && (
+                    <div className="flex h-40 items-center justify-center text-sm text-[#bcbcbc]">
+                      Carregando cards arquivados...
+                    </div>
+                  )}
+
+                  {!isLoadingArchivedCards && archivedCardsError && (
+                    <div className="rounded-lg border border-white/10 bg-[#1e1e1e] px-4 py-3">
+                      <p className="text-sm text-[#ff9ab8]">{archivedCardsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadArchivedCards()}
+                        className="mt-3 h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10"
+                      >
+                        Tentar novamente
+                      </button>
+                    </div>
+                  )}
+
+                  {!isLoadingArchivedCards && !archivedCardsError && archivedCards.length === 0 && (
+                    <div className="flex h-40 items-center justify-center text-sm text-[#bcbcbc]">
+                      Nenhum card arquivado.
+                    </div>
+                  )}
+
+                  {!isLoadingArchivedCards && !archivedCardsError && archivedCards.length > 0 && (
+                    <div className="space-y-3">
+                      {archivedCards
+                        .slice()
+                        .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime())
+                        .map((card) => (
+                          <article key={`${card.id}_${card.archivedAt}`} className="rounded-lg border border-white/10 bg-[#1e1e1e] p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h3 className="truncate text-sm font-semibold text-white">{card.title}</h3>
+                                <p className="mt-1 text-xs text-[#bcbcbc]">Board: {card.boardTitle}</p>
+                                <p className="text-xs text-[#bcbcbc]">Lista: {card.listTitle}</p>
+                                <p className="mt-1 text-xs text-[#bcbcbc]">Arquivado em {new Date(card.archivedAt).toLocaleString('pt-BR')}</p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRestoreArchivedCard(card.id)}
+                                  disabled={restoringCardId === card.id || deletingArchivedCardId === card.id}
+                                  className="inline-flex size-8 items-center justify-center rounded-md border border-[#1f4f7a] text-[#9fd2ff] hover:bg-[#0ea5e9]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                                  aria-label="Restaurar card"
+                                >
+                                  <RotateCcw className="size-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteArchivedCard(card.id)}
+                                  disabled={deletingArchivedCardId === card.id || restoringCardId === card.id}
+                                  className="inline-flex size-8 items-center justify-center rounded-md border border-[#743039] text-[#ff9ab8] hover:bg-[#aa003f]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                  aria-label="Excluir card arquivado"
+                                >
+                                  <Trash2 className="size-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="mt-5 flex justify-end">
               <button
@@ -526,3 +730,4 @@ export default function Sidebar({
     </aside>
   )
 }
+

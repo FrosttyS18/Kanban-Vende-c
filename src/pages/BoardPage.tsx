@@ -139,18 +139,13 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }, [])
 
   const loadGlobalRoleUsers = useCallback(async () => {
-    if (currentUserRole !== 'admin') {
-      setGlobalRoleUsers([])
-      return
-    }
-
     try {
       const users = await listGlobalAdminsAndMembersRemote()
       setGlobalRoleUsers(users)
     } catch {
       setGlobalRoleUsers([])
     }
-  }, [currentUserRole])
+  }, [])
 
   const triggerCreateBoard = () => {
     setCreateBoardSignal((prev) => prev + 1)
