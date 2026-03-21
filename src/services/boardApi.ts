@@ -147,10 +147,32 @@ type ProfileRow = {
   last_board_id?: string | null
 }
 
+type CurrentProfile = {
+  id: string
+  email: string
+  lastBoardId: string | null
+  roleGlobal: GlobalUserRole
+}
+
 const LEGACY_KEYS = ['kanban_vndc_store_v1', 'board_columns', 'board_cards', 'board_labels', 'archived_cards', 'kanban_vndc_store_v0']
 const CURRENT_BOARD_STORAGE_KEY = 'kanban_vndc_current_board'
 const MEMBER_COLORS = ['#ff0068', '#ff2d55', '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7']
 const STORE_VERSION = 3
+const PROFILE_CACHE_TTL_MS = 45000
+
+let currentProfileCache:
+  | {
+      userId: string
+      expiresAt: number
+      value: CurrentProfile
+    }
+  | null = null
+let currentProfileInFlight:
+  | {
+      userId: string
+      promise: Promise<CurrentProfile>
+    }
+  | null = null
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -225,6 +247,16 @@ export async function setLastBoardIdRemote(boardId: string | null): Promise<void
   if (error) {
     throw new Error(error.message)
   }
+
+  if (currentProfileCache?.userId === user.id) {
+    currentProfileCache = {
+      ...currentProfileCache,
+      value: {
+        ...currentProfileCache.value,
+        lastBoardId: nextBoardId
+      }
+    }
+  }
 }
 
 async function getCurrentUser(): Promise<{ id: string; email: string; fullName: string | null; avatarUrl: string | null }> {
@@ -242,34 +274,72 @@ async function getCurrentUser(): Promise<{ id: string; email: string; fullName: 
   }
 }
 
-async function ensureCurrentProfile(): Promise<{ id: string; email: string; lastBoardId: string | null; roleGlobal: GlobalUserRole }> {
+async function ensureCurrentProfile(options?: { forceRefresh?: boolean }): Promise<CurrentProfile> {
+  const forceRefresh = options?.forceRefresh === true
+  const now = Date.now()
   const user = await getCurrentUser()
-  const payload = {
-    id: user.id,
-    email: user.email,
-    full_name: user.fullName,
-    avatar_url: user.avatarUrl
-  }
-  const { data, error } = await supabase
-    .from('profiles')
-    .upsert(payload, { onConflict: 'id' })
-    .select('id,email,last_board_id,role_global')
-    .maybeSingle()
-  if (error) {
-    throw new Error(error.message)
+
+  if (
+    !forceRefresh &&
+    currentProfileCache?.userId === user.id &&
+    currentProfileCache.expiresAt > now
+  ) {
+    return { ...currentProfileCache.value }
   }
 
-  const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
-  if (syncInvitesError) {
-    throw new Error(syncInvitesError.message)
+  if (!forceRefresh && currentProfileInFlight?.userId === user.id) {
+    return currentProfileInFlight.promise
   }
 
-  const row = data as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
-  return {
-    id: user.id,
-    email: user.email,
-    lastBoardId: row?.last_board_id ?? null,
-    roleGlobal: row?.role_global === 'admin' ? 'admin' : 'member'
+  const fetchPromise = (async (): Promise<CurrentProfile> => {
+    const payload = {
+      id: user.id,
+      email: user.email,
+      full_name: user.fullName,
+      avatar_url: user.avatarUrl
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(payload, { onConflict: 'id' })
+      .select('id,email,last_board_id,role_global')
+      .maybeSingle()
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
+    if (syncInvitesError) {
+      throw new Error(syncInvitesError.message)
+    }
+
+    const row = data as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
+    const currentProfile: CurrentProfile = {
+      id: user.id,
+      email: user.email,
+      lastBoardId: row?.last_board_id ?? null,
+      roleGlobal: row?.role_global === 'admin' ? 'admin' : 'member'
+    }
+
+    currentProfileCache = {
+      userId: user.id,
+      expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+      value: currentProfile
+    }
+
+    return { ...currentProfile }
+  })()
+
+  currentProfileInFlight = {
+    userId: user.id,
+    promise: fetchPromise
+  }
+
+  try {
+    return await fetchPromise
+  } finally {
+    if (currentProfileInFlight?.promise === fetchPromise) {
+      currentProfileInFlight = null
+    }
   }
 }
 
@@ -295,8 +365,8 @@ function mapChecklistRows(checklists: ChecklistRow[], items: ChecklistItemRow[])
     }))
 }
 
-async function fetchBoardStoreFromRemote(selectedBoardId?: string): Promise<BoardStore> {
-  const currentUser = await ensureCurrentProfile()
+async function fetchBoardStoreFromRemote(selectedBoardId?: string, options?: { forceProfileRefresh?: boolean }): Promise<BoardStore> {
+  const currentUser = await ensureCurrentProfile({ forceRefresh: options?.forceProfileRefresh })
   const currentUserId = currentUser.id
   const profileLastBoardId = currentUser.lastBoardId?.trim() ?? ''
 
@@ -756,7 +826,7 @@ export async function loadBoardStoreFromRemote(
       return cloneBoardStore(inFlightStore)
     }
 
-    const promise = fetchBoardStoreFromRemote(selectedBoardId)
+    const promise = fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: forceRefresh })
     boardStoreInFlightByKey.set(cacheKey, promise)
 
     try {
@@ -771,7 +841,7 @@ export async function loadBoardStoreFromRemote(
     }
   }
 
-  const result = await fetchBoardStoreFromRemote(selectedBoardId)
+  const result = await fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: forceRefresh })
   boardStoreCacheByKey.set(cacheKey, {
     expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
     value: cloneBoardStore(result)
@@ -842,6 +912,17 @@ export async function setGlobalRoleByEmailRemote(email: string, role: GlobalUser
     }
     return { ok: false, message: 'Não foi possível atualizar o cargo global.' }
   }
+
+  if (currentProfileCache?.value.email === normalizedEmail) {
+    currentProfileCache = {
+      ...currentProfileCache,
+      value: {
+        ...currentProfileCache.value,
+        roleGlobal: role
+      }
+    }
+  }
+  invalidateBoardStoreCache()
 
   return { ok: true, message: 'Cargo global atualizado com sucesso.' }
 }
@@ -1691,9 +1772,6 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
     const isInCurrentBoardList = Boolean(listId && scopedListIds.has(listId))
 
     if (!isInCurrentBoardList && !isKnownCard) {
-      if (!listId && !cardId) {
-        onChange()
-      }
       return false
     }
 

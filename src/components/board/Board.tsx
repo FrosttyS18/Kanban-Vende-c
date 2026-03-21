@@ -95,6 +95,8 @@ const REALTIME_RECONNECT_BASE_DELAY_MS = 500
 const REALTIME_RECONNECT_MAX_DELAY_MS = 4000
 const BOARD_SYNC_INTERACTION_THROTTLE_MS = 1200
 const BOARD_SYNC_HEARTBEAT_MS = 10000
+const TRANSIENT_BOARD_RETRY_BASE_DELAY_MS = 600
+const TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS = 3
 
 const EMPTY_STORE: BoardStore = {
   version: 3,
@@ -109,6 +111,27 @@ const EMPTY_STORE: BoardStore = {
   currentBoardId: '',
   currentMemberId: '',
   currentUserRole: 'member'
+}
+
+function isTransientBoardLoadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalizedMessage = message.toLowerCase()
+
+  return (
+    normalizedMessage.includes('pgrst002') ||
+    normalizedMessage.includes('schema cache') ||
+    normalizedMessage.includes('could not query the database') ||
+    normalizedMessage.includes('failed to fetch') ||
+    normalizedMessage.includes('networkerror') ||
+    normalizedMessage.includes('fetch failed') ||
+    normalizedMessage.includes('timed out')
+  )
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }
 
 function getBoardColumns(snapshot: BoardStore, boardId: string): ColumnData[] {
@@ -263,10 +286,33 @@ export default function Board({
       }
       setStoreError(null)
       try {
-        const nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, {
-          forceRefresh: options?.forceRefresh,
-          bypassInFlight: options?.bypassInFlight
-        })
+        let nextStore: BoardStore | null = null
+        let lastError: unknown = null
+
+        for (let attempt = 1; attempt <= TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS; attempt += 1) {
+          try {
+            nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, {
+              forceRefresh: options?.forceRefresh || attempt > 1,
+              bypassInFlight: options?.bypassInFlight || attempt > 1
+            })
+            break
+          } catch (error) {
+            lastError = error
+            const shouldRetry = isTransientBoardLoadError(error) && attempt < TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS
+            if (!shouldRetry) {
+              throw error
+            }
+
+            const jitter = Math.floor(Math.random() * 220)
+            const backoffDelay = TRANSIENT_BOARD_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + jitter
+            await wait(backoffDelay)
+          }
+        }
+
+        if (!nextStore) {
+          throw (lastError ?? new Error('Não foi possível carregar os boards.'))
+        }
+
         applyStore(nextStore)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Não foi possível carregar os boards.'

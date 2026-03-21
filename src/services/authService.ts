@@ -65,3 +65,4 @@ export async function signOut(): Promise<void> {
   if (!hasSupabaseConfig()) return
   await supabase.auth.signOut()
 }
+

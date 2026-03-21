@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
 import type { LoginRateLimitStatus } from "@/types/auth"
 import {
@@ -21,6 +21,8 @@ const defaultRateLimit: LoginRateLimitStatus = {
   failedAttempts: 0,
   blockedUntil: null,
 }
+
+const SESSION_BOOTSTRAP_TIMEOUT_MS = 9000
 
 function getRateLimitMessage(status: LoginRateLimitStatus): string {
   if (!status.isBlocked || !status.blockedUntil) return ""
@@ -75,10 +77,15 @@ export function useAuthSession() {
   const [error, setError] = useState<string | null>(
     initialRateLimitStatus.isBlocked ? getRateLimitMessage(initialRateLimitStatus) : null,
   )
+  const [sessionBootstrapError, setSessionBootstrapError] = useState<string | null>(null)
+  const [sessionBootstrapAttempt, setSessionBootstrapAttempt] = useState(0)
   const [rateLimitStatus, setRateLimitStatus] = useState<LoginRateLimitStatus>(
     initialRateLimitStatus,
   )
+  const [authEventTick, setAuthEventTick] = useState(0)
   const allowedDomain = useMemo(() => getAllowedEmailDomain(), [])
+  const clearedRateLimitForUserRef = useRef<string | null>(null)
+  const queuedAuthSessionRef = useRef<Session | null>(null)
 
   const applyRateLimit = useCallback((status: LoginRateLimitStatus) => {
     setRateLimitStatus(status)
@@ -103,7 +110,11 @@ export function useAuthSession() {
         return
       }
 
-      await clearLoginRateLimit()
+      if (clearedRateLimitForUserRef.current !== nextSession.user.id) {
+        await clearLoginRateLimit()
+        clearedRateLimitForUserRef.current = nextSession.user.id
+      }
+
       setRateLimitStatus(defaultRateLimit)
       setError(null)
       setSession(nextSession)
@@ -139,12 +150,32 @@ export function useAuthSession() {
       }
     }
 
+    const getSessionWithTimeout = async (): Promise<Session | null> => {
+      const sessionPromise = getCurrentSession()
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        window.setTimeout(() => {
+          reject(new Error("SESSION_BOOTSTRAP_TIMEOUT"))
+        }, SESSION_BOOTSTRAP_TIMEOUT_MS)
+      })
+      return Promise.race([sessionPromise, timeoutPromise])
+    }
+
     const initializeSession = async () => {
       try {
-        const currentSession = await getCurrentSession()
+        const currentSession = await getSessionWithTimeout()
         if (!mounted) return
         await applySession(currentSession)
         await syncRateLimitStatus()
+        setSessionBootstrapError(null)
+      } catch (initializationError) {
+        if (!mounted) return
+        const message =
+          initializationError instanceof Error &&
+          initializationError.message === "SESSION_BOOTSTRAP_TIMEOUT"
+            ? "Não foi possível validar sua sessão no tempo esperado."
+            : "Não foi possível validar sua sessão agora."
+        console.error("[auth_session_bootstrap_failed]", initializationError)
+        setSessionBootstrapError(message)
       } finally {
         if (mounted) setLoading(false)
       }
@@ -153,7 +184,8 @@ export function useAuthSession() {
     void initializeSession()
 
     const unsubscribe = onAuthChange((_event, nextSession) => {
-      void applySession(nextSession)
+      queuedAuthSessionRef.current = nextSession
+      setAuthEventTick((previous) => previous + 1)
     })
 
     const timer = window.setInterval(() => {
@@ -165,7 +197,40 @@ export function useAuthSession() {
       unsubscribe()
       window.clearInterval(timer)
     }
-  }, [applySession])
+  }, [applySession, sessionBootstrapAttempt])
+
+  useEffect(() => {
+    if (authEventTick === 0) {
+      return
+    }
+
+    let cancelled = false
+
+    const processQueuedAuthSession = async () => {
+      try {
+        await applySession(queuedAuthSessionRef.current)
+        if (!cancelled) {
+          setSessionBootstrapError(null)
+        }
+      } catch (authEventError) {
+        if (!cancelled) {
+          console.error("[auth_session_event_failed]", authEventError)
+        }
+      }
+    }
+
+    void processQueuedAuthSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [applySession, authEventTick])
+
+  const retrySessionBootstrap = useCallback(() => {
+    setSessionBootstrapError(null)
+    setLoading(true)
+    setSessionBootstrapAttempt((previous) => previous + 1)
+  }, [])
 
   const login = useCallback(async () => {
     const status = await getLoginRateLimitStatus()
@@ -216,5 +281,7 @@ export function useAuthSession() {
     isConfigured,
     allowedDomain,
     rateLimitStatus,
+    sessionBootstrapError,
+    retrySessionBootstrap,
   }
 }
