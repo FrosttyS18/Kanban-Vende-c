@@ -2,7 +2,7 @@
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, Crown, Lock, Plus, RotateCcw, Settings2, SquareKanban, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Crown, Lock, Plus, RotateCcw, Settings2, SquareKanban, Trash2, X } from 'lucide-react'
 import archivedIcon from '@/assets/icons/icon-arquivados.svg'
 import membersIcon from '@/assets/icons/icon-membros.svg'
 import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
@@ -490,33 +490,40 @@ export default function Sidebar({
 
       {isSettingsOpen && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Configurações">
-          <div className="flex max-h-[calc(100vh-32px)] w-full max-w-180 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+          <div className="relative flex min-h-[560px] max-h-[calc(100vh-32px)] w-full max-w-180 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(false)}
+              className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-full border border-white/20 text-[#d1d1d1] hover:bg-white/10 hover:text-white"
+              aria-label="Fechar configurações"
+            >
+              <X className="size-4" />
+            </button>
             {settingsView === 'hub' && (
               <>
                 <h2 className="text-lg font-semibold text-white">Configurações</h2>
-                <p className="mt-2 text-sm text-[#d1d1d1]">Selecione uma função para continuar.</p>
-                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => openSettingsView('archived')}
-                    className="flex h-20 items-center justify-between rounded-2xl bg-[#d9d9d9] px-4 text-left transition-transform hover:scale-[1.01]"
+                    className="flex h-10 items-center justify-between rounded-xl bg-[#d9d9d9] px-3 text-left transition-transform hover:scale-[1.01]"
                   >
                     <div className="flex items-center gap-3">
-                      <img src={archivedIcon} alt="Ícone de arquivados" className="size-8" />
-                      <span className="text-[22px] font-medium text-primary">Arquivados</span>
+                      <img src={archivedIcon} alt="Ícone de arquivados" className="size-4" />
+                      <span className="text-[14px] font-medium text-primary">Arquivados</span>
                     </div>
-                    <span className="inline-flex size-11 items-center justify-center rounded-full bg-black text-3xl leading-none text-primary">›</span>
+                    <span className="inline-flex size-6 items-center justify-center rounded-full bg-black text-lg leading-none text-primary">›</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => openSettingsView('members')}
-                    className="flex h-20 items-center justify-between rounded-2xl bg-[#d9d9d9] px-4 text-left transition-transform hover:scale-[1.01]"
+                    className="flex h-10 items-center justify-between rounded-xl bg-[#d9d9d9] px-3 text-left transition-transform hover:scale-[1.01]"
                   >
                     <div className="flex items-center gap-3">
-                      <img src={membersIcon} alt="Ícone de membros" className="size-8" />
-                      <span className="text-[22px] font-medium text-primary">Membros</span>
+                      <img src={membersIcon} alt="Ícone de membros" className="size-4" />
+                      <span className="text-[14px] font-medium text-primary">Membros</span>
                     </div>
-                    <span className="inline-flex size-11 items-center justify-center rounded-full bg-black text-3xl leading-none text-primary">›</span>
+                    <span className="inline-flex size-6 items-center justify-center rounded-full bg-black text-lg leading-none text-primary">›</span>
                   </button>
                 </div>
               </>
@@ -558,15 +565,18 @@ export default function Sidebar({
                       disabled={!isAdmin || isManagingRoles}
                       className="h-10 w-full rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
                     />
-                    <select
-                      value={roleDraft}
-                      onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
-                      disabled={!isAdmin || isManagingRoles}
-                      className="h-10 rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <option value="admin">Admin</option>
-                      <option value="member">Member</option>
-                    </select>
+                    <div className="relative">
+                      <select
+                        value={roleDraft}
+                        onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
+                        disabled={!isAdmin || isManagingRoles}
+                        className="h-10 w-full appearance-none rounded-[7px] border border-white/20 bg-black pl-3 pr-9 text-sm text-white outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
+                    </div>
                     <button
                       type="button"
                       onClick={() => void handleApplyRoleByEmail()}
@@ -714,16 +724,6 @@ export default function Sidebar({
                 </div>
               </>
             )}
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(false)}
-                className="h-9 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
-              >
-                Fechar
-              </button>
-            </div>
           </div>
         </div>
       )}
