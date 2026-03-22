@@ -510,6 +510,44 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     )
   }
 
+  const handleMarkNotificationsRead = () => {
+    if (!currentMemberId) {
+      return
+    }
+    setProfileNotifications((previous) => {
+      previous.forEach((notification) => {
+        optimisticReadNotificationIdsRef.current.add(notification.id)
+      })
+      return previous.map((notification) => ({ ...notification, isRead: true }))
+    })
+    setUnreadNotificationsCount(0)
+    syncMarkNotificationsRead()
+  }
+
+  const handleOpenNotification = (notification: MemberNotification) => {
+    setIsMobileSidebarOpen(false)
+    if (!notification.isRead) {
+      optimisticReadNotificationIdsRef.current.add(notification.id)
+      setProfileNotifications((previous) => previous.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)))
+      setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
+      syncMarkNotificationRead(notification.id)
+    }
+
+    setFallbackBoardId(notification.boardId)
+    navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
+  }
+
+  const handleDeleteNotification = (notification: MemberNotification) => {
+    optimisticDeletedNotificationIdsRef.current.add(notification.id)
+    optimisticReadNotificationIdsRef.current.delete(notification.id)
+    setProfileNotifications((previous) => previous.filter((item) => item.id !== notification.id))
+    if (!notification.isRead) {
+      setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
+    }
+
+    syncDeleteNotification(notification.id)
+  }
+
   const handleBoardMetaChange = useCallback((meta: {
     boards: BoardData[]
     currentBoardId: string
@@ -707,42 +745,9 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           activeBoardColor={selectedBoardCatalog?.color}
           notifications={profileNotifications}
           unreadNotificationsCount={unreadNotificationsCount}
-          onMarkNotificationsRead={() => {
-            if (!currentMemberId) {
-              return
-            }
-            setProfileNotifications((previous) => {
-              previous.forEach((notification) => {
-                optimisticReadNotificationIdsRef.current.add(notification.id)
-              })
-              return previous.map((notification) => ({ ...notification, isRead: true }))
-            })
-            setUnreadNotificationsCount(0)
-            syncMarkNotificationsRead()
-          }}
-          onOpenNotification={(notification) => {
-            setIsMobileSidebarOpen(false)
-            if (!notification.isRead) {
-              optimisticReadNotificationIdsRef.current.add(notification.id)
-              setProfileNotifications((previous) => previous.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)))
-              setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
-
-              syncMarkNotificationRead(notification.id)
-            }
-
-            setFallbackBoardId(notification.boardId)
-            navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
-          }}
-          onDeleteNotification={(notification) => {
-            optimisticDeletedNotificationIdsRef.current.add(notification.id)
-            optimisticReadNotificationIdsRef.current.delete(notification.id)
-            setProfileNotifications((previous) => previous.filter((item) => item.id !== notification.id))
-            if (!notification.isRead) {
-              setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
-            }
-
-            syncDeleteNotification(notification.id)
-          }}
+          onMarkNotificationsRead={handleMarkNotificationsRead}
+          onOpenNotification={handleOpenNotification}
+          onDeleteNotification={handleDeleteNotification}
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
         />
       </div>
@@ -766,6 +771,28 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           const mutationResult = await runMutation(globalRoleMutation, { email, role })
           return mutationResult.data ?? { ok: false, message: 'Nao foi possivel atualizar o cargo global.' }
         }}
+        mobileSearchQuery={searchQuery}
+        onMobileSearchChange={setSearchQuery}
+        mobileSearchResults={searchEnabled ? searchQueryState.data ?? [] : []}
+        mobileSearchLoading={searchEnabled && searchQueryState.isLoading}
+        mobileSearchError={searchEnabled ? searchQueryState.error instanceof Error ? searchQueryState.error.message : null : null}
+        onMobileSelectSearchResult={(result) => {
+          setPendingSearchOpen({
+            boardId: result.boardId,
+            cardId: result.cardId,
+            cardTitle: result.cardTitle
+          })
+          setFallbackBoardId(result.boardId)
+          navigateToBoard(result.boardId, { cardId: result.cardId })
+        }}
+        onMobileShareBoard={() => setShareBoardSignal((previous) => previous + 1)}
+        mobileNotifications={profileNotifications}
+        mobileUnreadNotificationsCount={unreadNotificationsCount}
+        onMobileMarkNotificationsRead={handleMarkNotificationsRead}
+        onMobileOpenNotification={handleOpenNotification}
+        onMobileDeleteNotification={handleDeleteNotification}
+        mobileUserEmail={userEmail}
+        onMobileLogout={onLogout ? handleLogout : undefined}
         mobileOpen={isMobileSidebarOpen}
         onMobileClose={() => setIsMobileSidebarOpen(false)}
       />

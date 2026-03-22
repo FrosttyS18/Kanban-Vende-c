@@ -63,6 +63,7 @@ const ATTACHMENT_MENU_WIDTH = 140
 const ATTACHMENT_MENU_HEIGHT = 90
 const LINK_FORM_MIN_WIDTH = 300
 const LINK_FORM_MAX_WIDTH = 560
+const LINK_FORM_COMPACT_MAX_WIDTH = 420
 const LINK_FORM_HEIGHT_ESTIMATE = 250
 
 type FloatingAlign = 'start' | 'end'
@@ -480,6 +481,7 @@ export default function CardModal({
   const linkTitleInputRef = useRef<HTMLInputElement>(null)
   const linkUrlInputRef = useRef<HTMLInputElement>(null)
   const linkFormAnchorRef = useRef<HTMLElement | null>(null)
+  const linkFormDragRef = useRef<{ startX: number; startY: number; top: number; left: number } | null>(null)
   const attachmentMenuAnchorRef = useRef<HTMLButtonElement | null>(null)
   const lastSavedDescriptionRef = useRef(card.description)
 
@@ -496,6 +498,7 @@ export default function CardModal({
     setShowLinkForm(false)
     setLinkFormPanel(null)
     linkFormAnchorRef.current = null
+    linkFormDragRef.current = null
   }
 
   const isLinkDraftEmpty = () => linkDraft.title.trim().length === 0 && linkDraft.url.trim().length === 0
@@ -578,12 +581,35 @@ export default function CardModal({
   }, [linkDraft.title, linkDraft.url])
 
   const calculateLinkFormPanel = useCallback((anchorRect: DOMRect): FloatingPanelState => {
+    const adaptiveMaxWidth = window.innerWidth < 1280 ? LINK_FORM_COMPACT_MAX_WIDTH : LINK_FORM_MAX_WIDTH
     const width = Math.min(
-      LINK_FORM_MAX_WIDTH,
+      adaptiveMaxWidth,
       Math.max(LINK_FORM_MIN_WIDTH, window.innerWidth - FLOATING_VIEWPORT_PADDING * 2)
     )
     const position = getFloatingPosition(anchorRect, width, LINK_FORM_HEIGHT_ESTIMATE, 'end')
     return { ...position, width }
+  }, [])
+
+  const calculateCenteredLinkFormPanel = useCallback((): FloatingPanelState => {
+    const adaptiveMaxWidth = window.innerWidth < 1280 ? LINK_FORM_COMPACT_MAX_WIDTH : LINK_FORM_MAX_WIDTH
+    const width = Math.min(
+      adaptiveMaxWidth,
+      Math.max(LINK_FORM_MIN_WIDTH, window.innerWidth - FLOATING_VIEWPORT_PADDING * 2)
+    )
+    return {
+      width,
+      top: Math.max(
+        FLOATING_VIEWPORT_PADDING,
+        Math.min(
+          window.innerHeight - LINK_FORM_HEIGHT_ESTIMATE - FLOATING_VIEWPORT_PADDING,
+          window.innerHeight / 2 - LINK_FORM_HEIGHT_ESTIMATE / 2
+        )
+      ),
+      left: Math.max(
+        FLOATING_VIEWPORT_PADDING,
+        Math.min(window.innerWidth - width - FLOATING_VIEWPORT_PADDING, window.innerWidth / 2 - width / 2)
+      )
+    }
   }, [])
 
   const calculateAttachmentMenuPanel = useCallback((anchorRect: DOMRect) => {
@@ -763,6 +789,66 @@ export default function CardModal({
       window.removeEventListener('scroll', reposition, true)
     }
   }, [showLinkForm, calculateLinkFormPanel])
+
+  const onLinkFormDragMove = useCallback((event: globalThis.MouseEvent) => {
+    if (!linkFormDragRef.current) {
+      return
+    }
+
+    setLinkFormPanel((previous) => {
+      if (!previous || !linkFormDragRef.current) {
+        return previous
+      }
+
+      const deltaX = event.clientX - linkFormDragRef.current.startX
+      const deltaY = event.clientY - linkFormDragRef.current.startY
+
+      const minLeft = FLOATING_VIEWPORT_PADDING
+      const maxLeft = Math.max(
+        FLOATING_VIEWPORT_PADDING,
+        window.innerWidth - previous.width - FLOATING_VIEWPORT_PADDING
+      )
+      const minTop = FLOATING_VIEWPORT_PADDING
+      const maxTop = Math.max(
+        FLOATING_VIEWPORT_PADDING,
+        window.innerHeight - LINK_FORM_HEIGHT_ESTIMATE - FLOATING_VIEWPORT_PADDING
+      )
+
+      const left = Math.min(maxLeft, Math.max(minLeft, linkFormDragRef.current.left + deltaX))
+      const top = Math.min(maxTop, Math.max(minTop, linkFormDragRef.current.top + deltaY))
+
+      return { ...previous, top, left }
+    })
+  }, [])
+
+  const stopLinkFormDrag = useCallback(() => {
+    linkFormDragRef.current = null
+    window.removeEventListener('mousemove', onLinkFormDragMove)
+  }, [onLinkFormDragMove])
+
+  const startLinkFormDrag = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (!linkFormPanel) {
+      return
+    }
+
+    event.preventDefault()
+    linkFormDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      top: linkFormPanel.top,
+      left: linkFormPanel.left
+    }
+
+    window.addEventListener('mousemove', onLinkFormDragMove)
+    window.addEventListener('mouseup', stopLinkFormDrag, { once: true })
+  }, [linkFormPanel, onLinkFormDragMove, stopLinkFormDrag])
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', onLinkFormDragMove)
+      window.removeEventListener('mouseup', stopLinkFormDrag)
+    }
+  }, [onLinkFormDragMove, stopLinkFormDrag])
 
   const syncDueInputs = (dueDate?: string) => {
     if (!dueDate) {
@@ -1191,24 +1277,7 @@ export default function CardModal({
     if (anchorEl) {
       openLinkFormFromAnchor(anchorEl)
     } else {
-      const width = Math.min(
-        LINK_FORM_MAX_WIDTH,
-        Math.max(LINK_FORM_MIN_WIDTH, window.innerWidth - FLOATING_VIEWPORT_PADDING * 2)
-      )
-      setLinkFormPanel({
-        top: Math.max(
-          FLOATING_VIEWPORT_PADDING,
-          Math.min(
-            window.innerHeight - LINK_FORM_HEIGHT_ESTIMATE - FLOATING_VIEWPORT_PADDING,
-            window.innerHeight / 2 - LINK_FORM_HEIGHT_ESTIMATE / 2
-          )
-        ),
-        left: Math.max(
-          FLOATING_VIEWPORT_PADDING,
-          Math.min(window.innerWidth - width - FLOATING_VIEWPORT_PADDING, window.innerWidth / 2 - width / 2)
-        ),
-        width
-      })
+      setLinkFormPanel(calculateCenteredLinkFormPanel())
       setShowLinkForm(true)
     }
     setOpenedLinkMenuId(null)
@@ -1641,6 +1710,30 @@ export default function CardModal({
                 style={{ top: linkFormPanel.top, left: linkFormPanel.left, width: linkFormPanel.width }}
                 className="fixed z-80 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 shadow-2xl"
               >
+                <div
+                  onMouseDown={startLinkFormDrag}
+                  className="mb-2 flex h-8 cursor-move items-center justify-between rounded-[6px] bg-[#242528] px-2 select-none"
+                >
+                  <span className="text-xs font-semibold text-[#d1d1d1]">{linkDraft.id ? 'Editar link' : 'Novo link'}</span>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.stopPropagation()
+                    }}
+                    onClick={() => {
+                      if (isLinkDraftEmpty()) {
+                        resetLinkFormDraft()
+                        closeLinkForm()
+                        return
+                      }
+                      attemptCloseLinkFormByOutside()
+                    }}
+                    className="inline-flex size-6 items-center justify-center rounded-[5px] text-[#d1d1d1] hover:bg-[#3a3b3f]"
+                    aria-label="Fechar formulário de link"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
                 <div className="grid gap-2">
                   <input
                     ref={linkTitleInputRef}
