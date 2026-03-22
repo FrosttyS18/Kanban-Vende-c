@@ -786,13 +786,6 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           navigateToBoard(result.boardId, { cardId: result.cardId })
         }}
         onMobileShareBoard={() => setShareBoardSignal((previous) => previous + 1)}
-        mobileNotifications={profileNotifications}
-        mobileUnreadNotificationsCount={unreadNotificationsCount}
-        onMobileMarkNotificationsRead={handleMarkNotificationsRead}
-        onMobileOpenNotification={handleOpenNotification}
-        onMobileDeleteNotification={handleDeleteNotification}
-        mobileUserEmail={userEmail}
-        onMobileLogout={onLogout ? handleLogout : undefined}
         mobileOpen={isMobileSidebarOpen}
         onMobileClose={() => setIsMobileSidebarOpen(false)}
       />

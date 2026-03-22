@@ -3,12 +3,12 @@ import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, Bell, ChevronDown, Crown, Lock, LogOut, Plus, RotateCcw, Search, Settings2, SquareKanban, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Crown, Lock, Plus, RotateCcw, Search, Settings2, Share2, SquareKanban, Trash2, X } from 'lucide-react'
 import archivedIcon from '@/assets/icons/icon-arquivados.svg'
 import membersIcon from '@/assets/icons/icon-membros.svg'
 import { queryKeys } from '@/lib/queryKeys'
 import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
-import { type ArchivedCardData, type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole, type MemberNotification, type SearchResultItem } from '@/types'
+import { type ArchivedCardData, type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole, type SearchResultItem } from '@/types'
 
 type SidebarProps = {
   boards: BoardCatalogItem[]
@@ -31,13 +31,6 @@ type SidebarProps = {
   mobileSearchError?: string | null
   onMobileSelectSearchResult?: (result: SearchResultItem) => void
   onMobileShareBoard?: () => void
-  mobileNotifications?: MemberNotification[]
-  mobileUnreadNotificationsCount?: number
-  onMobileMarkNotificationsRead?: () => void
-  onMobileOpenNotification?: (notification: MemberNotification) => void
-  onMobileDeleteNotification?: (notification: MemberNotification) => void
-  mobileUserEmail?: string
-  onMobileLogout?: () => void
   mobileOpen?: boolean
   onMobileClose?: () => void
 }
@@ -107,21 +100,6 @@ function SortableBoardButton({ board, active, onSelectBoard, onContextMenu }: So
   )
 }
 
-function getInitials(email?: string): string {
-  if (!email) {
-    return 'US'
-  }
-  const localPart = email.split('@')[0] ?? ''
-  const chunks = localPart.split(/[._-]/g).filter(Boolean)
-  if (chunks.length === 0) {
-    return localPart.slice(0, 2).toUpperCase() || 'US'
-  }
-  if (chunks.length === 1) {
-    return chunks[0].slice(0, 2).toUpperCase()
-  }
-  return `${chunks[0][0]}${chunks[1][0]}`.toUpperCase()
-}
-
 export default function Sidebar({
   boards,
   activeBoardId,
@@ -143,13 +121,6 @@ export default function Sidebar({
   mobileSearchError = null,
   onMobileSelectSearchResult,
   onMobileShareBoard,
-  mobileNotifications = [],
-  mobileUnreadNotificationsCount = 0,
-  onMobileMarkNotificationsRead,
-  onMobileOpenNotification,
-  onMobileDeleteNotification,
-  mobileUserEmail,
-  onMobileLogout,
   mobileOpen = false,
   onMobileClose
 }: SidebarProps) {
@@ -161,7 +132,6 @@ export default function Sidebar({
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsView, setSettingsView] = useState<SettingsView>('hub')
-  const [isMobileNotificationsOpen, setIsMobileNotificationsOpen] = useState(false)
   const [roleEmailDraft, setRoleEmailDraft] = useState('')
   const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
   const [settingsError, setSettingsError] = useState('')
@@ -177,7 +147,6 @@ export default function Sidebar({
   const editingBoard = editingBoardId ? boards.find((item) => item.id === editingBoardId) ?? null : null
   const deletingBoard = deletingBoardId ? boards.find((item) => item.id === deletingBoardId) ?? null : null
   const isAdmin = currentUserRole === 'admin'
-  const userInitials = getInitials(mobileUserEmail)
 
   const archivedCardsQuery = useQuery({
     queryKey: queryKeys.archivedCards,
@@ -351,7 +320,6 @@ export default function Sidebar({
   }, [contextMenu])
 
   const closeMobileDrawer = useCallback(() => {
-    setIsMobileNotificationsOpen(false)
     onMobileClose?.()
   }, [onMobileClose])
 
@@ -399,25 +367,36 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`h-full w-63.25 border-r border-[#3d3d3d] bg-[#1e1e1e] ${
-          mobileOpen ? 'fixed inset-y-0 left-0 z-70 flex flex-col lg:static lg:z-auto' : 'hidden lg:flex lg:flex-col'
+        className={`relative h-full border-r border-[#3d3d3d] bg-[#1e1e1e] ${
+          mobileOpen ? 'fixed inset-0 z-70 flex w-full flex-col lg:static lg:z-auto lg:w-63.25' : 'hidden w-63.25 lg:flex lg:flex-col'
         }`}
       >
-      <div className="px-8 pb-6 pt-7">
+      <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'}`}>
         {mobileOpen && (
-          <div className="mb-6 space-y-3 rounded-xl border border-white/10 bg-[#242528] p-3 lg:hidden">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9a9a9a]" />
-              <input
-                value={mobileSearchQuery}
-                onChange={(event) => onMobileSearchChange?.(event.target.value)}
-                placeholder="Pesquisar"
-                className="h-10 w-full rounded-[7px] border border-white/15 bg-black pl-9 pr-3 text-sm text-[#d1d1d1] outline-none focus:border-primary"
-                aria-label="Pesquisar"
-              />
+          <>
+            <div className="mb-5 flex items-center gap-4">
+              <button
+                type="button"
+                onClick={closeMobileDrawer}
+                className="inline-flex size-9 items-center justify-center rounded-md text-[#d1d1d1] hover:bg-white/10"
+                aria-label="Fechar menu"
+              >
+                <X className="size-7" />
+              </button>
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute right-3 top-1/2 size-5 -translate-y-1/2 text-[#d1d1d1]" />
+                <input
+                  value={mobileSearchQuery}
+                  onChange={(event) => onMobileSearchChange?.(event.target.value)}
+                  placeholder="Pesquisar"
+                  className="h-11 w-full rounded-[8px] border border-white/10 bg-black px-4 pr-10 text-[14px] font-medium text-[#d1d1d1] outline-none focus:border-primary"
+                  aria-label="Pesquisar"
+                />
+              </div>
             </div>
+
             {mobileSearchQuery.trim().length >= 3 && (
-              <div className="max-h-44 overflow-y-auto rounded-[7px] border border-white/10 bg-[#1f1f21] p-1">
+              <div className="mb-4 max-h-44 overflow-y-auto rounded-[8px] border border-white/10 bg-[#1f1f21] p-1">
                 {mobileSearchLoading ? (
                   <p className="px-2 py-2 text-xs text-[#a9a9a9]">Buscando...</p>
                 ) : mobileSearchError ? (
@@ -444,112 +423,10 @@ export default function Sidebar({
                 )}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onMobileShareBoard?.()
-                  closeMobileDrawer()
-                }}
-                className="h-9 rounded-[7px] bg-[#d1d1d1] px-3 text-xs font-semibold text-[#333333] hover:bg-[#e2e2e2]"
-              >
-                Compartilhar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onCreateBoard()
-                  closeMobileDrawer()
-                }}
-                disabled={!canCreateBoard}
-                className="h-9 rounded-[7px] bg-primary px-3 text-xs font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-[#6a6a6a]"
-              >
-                Criar
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsMobileNotificationsOpen((previous) => !previous)}
-              className="flex h-9 w-full items-center justify-between rounded-[7px] border border-white/15 bg-[#1f1f21] px-3 text-sm font-semibold text-[#d1d1d1] hover:bg-[#2a2b2d]"
-            >
-              <span className="inline-flex items-center gap-2">
-                <Bell className="size-4" />
-                Notificações
-              </span>
-              {mobileUnreadNotificationsCount > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff2d55] px-1 text-[10px] font-bold text-white">
-                  {mobileUnreadNotificationsCount > 9 ? '9+' : mobileUnreadNotificationsCount}
-                </span>
-              )}
-            </button>
-            {isMobileNotificationsOpen && (
-              <div className="rounded-[7px] border border-white/10 bg-[#1e1e1e] p-2">
-                <div className="mb-1 flex items-center justify-between">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a9a9a9]">Notificações</p>
-                  {mobileUnreadNotificationsCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => onMobileMarkNotificationsRead?.()}
-                      className="text-[10px] font-semibold text-primary hover:text-primary/80"
-                    >
-                      Marcar todas
-                    </button>
-                  )}
-                </div>
-                <div className="max-h-44 space-y-1 overflow-y-auto">
-                  {mobileNotifications.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-[#9a9a9a]">Sem notificações novas.</p>
-                  ) : (
-                    mobileNotifications.map((notification) => (
-                      <div key={notification.id} className={`rounded-[6px] px-2 py-1.5 ${notification.isRead ? 'bg-transparent' : 'bg-[#ff0068]/12'}`}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onMobileOpenNotification?.(notification)
-                            closeMobileDrawer()
-                          }}
-                          className="w-full text-left"
-                        >
-                          <p className="line-clamp-1 text-xs font-semibold text-white">{notification.title}</p>
-                          <p className="line-clamp-2 text-xs text-[#d1d1d1]">{notification.message}</p>
-                        </button>
-                        <div className="mt-1 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => onMobileDeleteNotification?.(notification)}
-                            className="text-[11px] font-semibold text-[#d1d1d1] hover:text-white"
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-            <div className="flex items-center justify-between rounded-[7px] border border-white/10 bg-[#1f1f21] px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-white">
-                  {userInitials}
-                </span>
-                <span className="truncate text-xs text-[#d1d1d1]">{mobileUserEmail ?? 'Usuário'}</span>
-              </div>
-              {onMobileLogout && (
-                <button
-                  type="button"
-                  onClick={onMobileLogout}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#d1d1d1] hover:text-white"
-                >
-                  <LogOut className="size-3.5" />
-                  Sair
-                </button>
-              )}
-            </div>
-          </div>
+          </>
         )}
 
-        <div className="mb-10 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[18px] font-semibold text-white">
             <SquareKanban className="size-4 text-[#d1d1d1]" />
             Boards
@@ -570,6 +447,7 @@ export default function Sidebar({
             <Plus className="size-4" />
           </button>
         </div>
+        <div className="mb-4 border-b border-[#3d3d3d]" />
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={boards.map((board) => board.id)} strategy={verticalListSortingStrategy}>
@@ -600,7 +478,21 @@ export default function Sidebar({
         </DndContext>
       </div>
 
-      <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
+      {mobileOpen && onMobileShareBoard && (
+        <button
+          type="button"
+          onClick={() => {
+            onMobileShareBoard()
+            closeMobileDrawer()
+          }}
+          className="absolute bottom-20 right-5 inline-flex size-12 items-center justify-center rounded-full bg-[#ececec] text-primary shadow-lg"
+          aria-label="Compartilhar board"
+        >
+          <Share2 className="size-5" />
+        </button>
+      )}
+
+      <div className={`mt-auto border-t border-[#3d3d3d] ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'}`}>
         <button
           type="button"
           onClick={() => {
@@ -609,7 +501,7 @@ export default function Sidebar({
               closeMobileDrawer()
             }
           }}
-          className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
+          className={`flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary ${mobileOpen ? 'justify-center' : ''}`}
           aria-label="Configurações"
         >
           <Settings2 className="size-4 text-[#d1d1d1]" />

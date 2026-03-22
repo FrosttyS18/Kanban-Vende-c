@@ -170,20 +170,23 @@ export default function Header({
 
   return (
     <header className="w-full border-b border-[#3d3d3d] bg-[#1e1e1e] shadow-[inset_0_-1px_0_0_#3d3d3d]">
-      <div className="flex h-16 items-center justify-between px-3 lg:hidden">
-        <div className="flex items-center gap-2">
-          {onOpenMobileSidebar && (
-            <button
-              type="button"
-              onClick={onOpenMobileSidebar}
-              className="inline-flex size-8 items-center justify-center rounded-md border border-white/15 bg-[#252525] text-[#d1d1d1] hover:bg-[#2f2f2f]"
-              aria-label="Abrir menu de boards"
-            >
-              <Menu className="size-4" />
-            </button>
-          )}
-          <Logo className="h-6.5 w-auto" />
+      <div className="relative flex h-16 items-center border-b border-[#3d3d3d] px-4 lg:hidden">
+        {onOpenMobileSidebar && (
+          <button
+            type="button"
+            onClick={onOpenMobileSidebar}
+            className="inline-flex size-10 items-center justify-center rounded-md text-[#d1d1d1] hover:bg-white/10"
+            aria-label="Abrir menu de boards"
+          >
+            <Menu className="size-8" />
+          </button>
+        )}
+        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+          <Logo className="h-8 w-auto" />
         </div>
+        <span className="ml-auto inline-flex size-10 items-center justify-center rounded-full bg-primary text-[18px] font-semibold text-white">
+          {initials}
+        </span>
       </div>
 
       <div className="hidden min-h-17.5 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 lg:flex lg:gap-4 lg:px-6.5 lg:py-0">
