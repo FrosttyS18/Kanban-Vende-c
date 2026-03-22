@@ -331,7 +331,7 @@ function ChevronIcon() {
 
 function DotsIcon() {
   return (
-    <svg viewBox="0 0 29 30" className="size-6" aria-hidden="true">
+    <svg viewBox="0 0 29 30" className="pointer-events-none size-6" aria-hidden="true">
       <rect width="29" height="30" rx="6" fill="#303134" />
       <circle cx="6.5" cy="15" r="2" fill="#d9d9d9" />
       <circle cx="14.5" cy="15" r="2" fill="#d9d9d9" />
@@ -1468,6 +1468,10 @@ export default function CardModal({
                   <button
                     type="button"
                     data-attachment-menu-trigger="true"
+                    aria-label="Abrir ações do anexo"
+                    onMouseDown={(event) => {
+                      event.stopPropagation()
+                    }}
                     onClick={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect()
                       const menuWidth = 140
@@ -1484,7 +1488,7 @@ export default function CardModal({
                             }
                       )
                     }}
-                    className="ml-2 rounded-[6px]"
+                    className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] transition hover:bg-[#3a3b3f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0068]"
                   >
                     <DotsIcon />
                   </button>
