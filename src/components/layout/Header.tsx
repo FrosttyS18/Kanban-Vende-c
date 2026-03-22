@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, Search, Trash2, UserRound } from 'lucide-react'
+import { Bell, Menu, Search, Trash2, UserRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/logo/Logo'
@@ -28,6 +28,7 @@ interface HeaderProps {
   onMarkNotificationsRead?: () => void
   onOpenNotification?: (notification: MemberNotification) => void
   onDeleteNotification?: (notification: MemberNotification) => void
+  onOpenMobileSidebar?: () => void
 }
 
 function getInitials(email?: string): string {
@@ -71,7 +72,8 @@ export default function Header({
   unreadNotificationsCount = 0,
   onMarkNotificationsRead,
   onOpenNotification,
-  onDeleteNotification
+  onDeleteNotification,
+  onOpenMobileSidebar
 }: HeaderProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
@@ -168,19 +170,30 @@ export default function Header({
 
   return (
     <header className="w-full border-b border-[#3d3d3d] bg-[#1e1e1e] shadow-[inset_0_-1px_0_0_#3d3d3d]">
-      <div className="flex h-17.5 items-center gap-3 px-4 lg:gap-4 lg:px-6.5">
-        <div className="flex w-37.5 shrink-0 items-center md:w-41.25">
+      <div className="flex min-h-17.5 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 lg:gap-4 lg:px-6.5 lg:py-0">
+        <div className="flex shrink-0 items-center gap-2 lg:w-41.25">
+          {onOpenMobileSidebar && (
+            <button
+              type="button"
+              onClick={onOpenMobileSidebar}
+              className="inline-flex size-8 items-center justify-center rounded-md border border-white/15 bg-[#252525] text-[#d1d1d1] hover:bg-[#2f2f2f] lg:hidden"
+              aria-label="Abrir menu de boards"
+            >
+              <Menu className="size-4" />
+            </button>
+          )}
           <Logo className="h-6.5 w-auto" />
         </div>
 
-        <div className="relative flex flex-1 items-center justify-center">
-          {activeBoardTitle && (
-            <div className="absolute left-25 hidden max-w-62.5 items-center gap-2 rounded-[7px] border border-white/15 bg-[#252525] px-2.5 py-1 md:flex">
-              <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: activeBoardColor || '#ff0068' }} />
-              <span className="truncate text-[12px] font-semibold text-[#d1d1d1]">{activeBoardTitle}</span>
-            </div>
-          )}
-          <div ref={searchRef} className="relative">
+        {activeBoardTitle && (
+          <div className="hidden min-w-0 max-w-44 shrink-0 items-center gap-2 rounded-[7px] border border-white/15 bg-[#252525] px-2 py-1 md:flex lg:max-w-62.5 lg:px-2.5">
+            <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: activeBoardColor || '#ff0068' }} />
+            <span className="truncate text-[12px] font-semibold text-[#d1d1d1]">{activeBoardTitle}</span>
+          </div>
+        )}
+
+        <div ref={searchRef} className="relative min-w-0 flex-1">
+          <div className="relative">
             <Input
               value={searchQuery}
               onChange={(event) => {
@@ -240,75 +253,75 @@ export default function Header({
                   handleSelectSearchResult(searchResults[activeHighlightedResultIndex])
                 }
               }}
-              className="h-9 w-[min(760px,46vw)] min-w-55 rounded-[7px] border-none bg-black pr-10 text-[14px] text-[#d1d1d1] placeholder:text-[#d1d1d1] focus-visible:ring-2 focus-visible:ring-primary lg:w-[min(760px,50vw)]"
+              className="h-9 w-full min-w-0 rounded-[7px] border-none bg-black pr-10 text-[14px] text-[#d1d1d1] placeholder:text-[#d1d1d1] focus-visible:ring-2 focus-visible:ring-primary lg:max-w-[min(760px,50vw)]"
               placeholder="Pesquisar"
               aria-label="Pesquisar"
             />
             <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
-
-            {shouldShowSearchDropdown && (
-              <div className="absolute left-0 right-0 top-11 z-50 rounded-[9px] border border-white/10 bg-[#1f1f21] p-2 shadow-2xl">
-                <div className="mb-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSearchScopeChange('board')}
-                    className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
-                      searchScope === 'board' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
-                    }`}
-                  >
-                    Neste board
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSearchScopeChange('all')}
-                    className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
-                      searchScope === 'all' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
-                    }`}
-                  >
-                    Todos os boards
-                  </button>
-                </div>
-
-                {searchLoading ? (
-                  <p className="px-2 py-2 text-xs text-[#a9a9a9]">Buscando...</p>
-                ) : searchError ? (
-                  <p className="px-2 py-2 text-xs text-[#ffb4ae]">{searchError}</p>
-                ) : searchResults.length === 0 ? (
-                  <p className="px-2 py-2 text-xs text-[#a9a9a9]">Nenhum card encontrado.</p>
-                ) : (
-                  <div className="max-h-72 overflow-y-auto">
-                    {searchResults.map((result, index) => (
-                      <button
-                        key={`${result.cardId}-${result.rank}-${index}`}
-                        type="button"
-                        onClick={() => handleSelectSearchResult(result)}
-                        className={`w-full rounded-[7px] px-2 py-2 text-left ${
-                          activeHighlightedResultIndex === index ? 'bg-[#ff0068]/20' : 'hover:bg-white/7'
-                        }`}
-                      >
-                        <p className="truncate text-[13px] font-semibold text-white">{result.cardTitle}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-[#a9a9a9]">
-                          {result.boardTitle} · {result.listTitle}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {searchOpeningLabel && (
-              <p className="pointer-events-none absolute -bottom-5 left-1 text-[11px] font-medium text-[#d1d1d1]">
-                {searchOpeningLabel}
-              </p>
-            )}
           </div>
+
+          {shouldShowSearchDropdown && (
+            <div className="absolute left-0 right-0 top-11 z-50 rounded-[9px] border border-white/10 bg-[#1f1f21] p-2 shadow-2xl">
+              <div className="mb-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSearchScopeChange('board')}
+                  className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
+                    searchScope === 'board' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
+                  }`}
+                >
+                  Neste board
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSearchScopeChange('all')}
+                  className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
+                    searchScope === 'all' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
+                  }`}
+                >
+                  Todos os boards
+                </button>
+              </div>
+
+              {searchLoading ? (
+                <p className="px-2 py-2 text-xs text-[#a9a9a9]">Buscando...</p>
+              ) : searchError ? (
+                <p className="px-2 py-2 text-xs text-[#ffb4ae]">{searchError}</p>
+              ) : searchResults.length === 0 ? (
+                <p className="px-2 py-2 text-xs text-[#a9a9a9]">Nenhum card encontrado.</p>
+              ) : (
+                <div className="max-h-72 overflow-y-auto">
+                  {searchResults.map((result, index) => (
+                    <button
+                      key={`${result.cardId}-${result.rank}-${index}`}
+                      type="button"
+                      onClick={() => handleSelectSearchResult(result)}
+                      className={`w-full rounded-[7px] px-2 py-2 text-left ${
+                        activeHighlightedResultIndex === index ? 'bg-[#ff0068]/20' : 'hover:bg-white/7'
+                      }`}
+                    >
+                      <p className="truncate text-[13px] font-semibold text-white">{result.cardTitle}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-[#a9a9a9]">
+                        {result.boardTitle} · {result.listTitle}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {searchOpeningLabel && (
+            <p className="pointer-events-none absolute -bottom-5 left-1 text-[11px] font-medium text-[#d1d1d1]">
+              {searchOpeningLabel}
+            </p>
+          )}
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2.5">
           <Button
             onClick={onShareBoard}
-            className="h-8 rounded-[7px] bg-[#d1d1d1] px-3 text-[12px] font-semibold text-[#333333] hover:bg-[#e2e2e2]"
+            className="hidden h-8 rounded-[7px] bg-[#d1d1d1] px-3 text-[12px] font-semibold text-[#333333] hover:bg-[#e2e2e2] sm:inline-flex"
           >
             Compartilhar
           </Button>
@@ -349,7 +362,7 @@ export default function Header({
             )}
 
             {isNotificationsOpen && (
-              <div className="absolute right-0 top-10 z-50 w-76 rounded-lg border border-white/10 bg-[#1e1e1e] p-2 shadow-xl">
+              <div className="absolute right-0 top-10 z-50 w-[min(304px,calc(100vw-24px))] rounded-lg border border-white/10 bg-[#1e1e1e] p-2 shadow-xl">
                 <div className="flex items-center justify-between px-1 py-1">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#a9a9a9]">Notificações</p>
                   {unreadNotificationsCount > 0 && (
@@ -442,6 +455,14 @@ export default function Header({
           </div>
         </div>
       </div>
+      {activeBoardTitle && (
+        <div className="px-3 pb-2 md:hidden">
+          <div className="inline-flex max-w-full items-center gap-2 rounded-[7px] border border-white/15 bg-[#252525] px-2 py-1">
+            <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: activeBoardColor || '#ff0068' }} />
+            <span className="truncate text-[12px] font-semibold text-[#d1d1d1]">{activeBoardTitle}</span>
+          </div>
+        </div>
+      )}
       {notificationToastMessage && (
         <div className="pointer-events-none fixed bottom-6 right-6 z-[90] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
           {notificationToastMessage}

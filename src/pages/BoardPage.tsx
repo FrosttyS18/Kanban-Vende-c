@@ -186,6 +186,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [currentUserRole, setCurrentUserRole] = useState<GlobalUserRole>('member')
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
   const [pendingSearchOpen, setPendingSearchOpen] = useState<{ boardId: string; cardId: string; cardTitle: string } | null>(null)
@@ -389,6 +390,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }
 
   const handleSelectBoard = (boardId: string) => {
+    setIsMobileSidebarOpen(false)
     setPendingSearchOpen(null)
     searchOpenFallbackTriggeredRef.current = null
     if (boardId === selectedBoardId && urlState.kind === 'board' && !urlState.cardId) {
@@ -674,7 +676,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }, [navigateToBoard, pendingShareToken, queryClient])
 
   return (
-    <div className="grid h-screen grid-cols-1 grid-rows-[70px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
+    <div className="grid h-screen grid-cols-1 grid-rows-[auto_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
       <div className="lg:col-span-2">
         <Header
           userEmail={userEmail}
@@ -689,6 +691,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           searchError={searchEnabled ? searchQueryState.error instanceof Error ? searchQueryState.error.message : null : null}
           searchOpeningLabel={pendingSearchOpen ? `Abrindo card: ${pendingSearchOpen.cardTitle}` : null}
           onSelectSearchResult={(result) => {
+            setIsMobileSidebarOpen(false)
             setPendingSearchOpen({
               boardId: result.boardId,
               cardId: result.cardId,
@@ -718,6 +721,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             syncMarkNotificationsRead()
           }}
           onOpenNotification={(notification) => {
+            setIsMobileSidebarOpen(false)
             if (!notification.isRead) {
               optimisticReadNotificationIdsRef.current.add(notification.id)
               setProfileNotifications((previous) => previous.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)))
@@ -739,6 +743,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
 
             syncDeleteNotification(notification.id)
           }}
+          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
         />
       </div>
 
@@ -761,9 +766,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           const mutationResult = await runMutation(globalRoleMutation, { email, role })
           return mutationResult.data ?? { ok: false, message: 'Nao foi possivel atualizar o cargo global.' }
         }}
+        mobileOpen={isMobileSidebarOpen}
+        onMobileClose={() => setIsMobileSidebarOpen(false)}
       />
 
-      <main className="overflow-hidden bg-[#252525]">
+      <main className="min-w-0 overflow-hidden bg-[#252525]">
         {shareJoinError && (
           <div className="mx-4 mt-3 rounded-xl border border-[#820002] bg-[#820002]/20 px-3 py-2 text-sm text-[#ffb4ae]">
             {shareJoinError}

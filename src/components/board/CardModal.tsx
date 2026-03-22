@@ -51,11 +51,49 @@ type AttachmentMenuState = {
 type FloatingPanelState = {
   top: number
   left: number
+  width: number
 }
 
 const DEFAULT_LABEL_COLOR = '#ff0068'
 const COMMENT_MAX_LENGTH = 1000
 const MAX_ACTIVITY_ITEMS = 120
+const FLOATING_VIEWPORT_PADDING = 12
+const FLOATING_OFFSET = 8
+const ATTACHMENT_MENU_WIDTH = 140
+const ATTACHMENT_MENU_HEIGHT = 90
+const LINK_FORM_MIN_WIDTH = 300
+const LINK_FORM_MAX_WIDTH = 560
+const LINK_FORM_HEIGHT_ESTIMATE = 250
+
+type FloatingAlign = 'start' | 'end'
+
+function getFloatingPosition(anchorRect: DOMRect, panelWidth: number, panelHeight: number, align: FloatingAlign = 'end') {
+  const minLeft = FLOATING_VIEWPORT_PADDING
+  const maxLeft = Math.max(
+    FLOATING_VIEWPORT_PADDING,
+    window.innerWidth - panelWidth - FLOATING_VIEWPORT_PADDING
+  )
+
+  const initialLeft = align === 'start' ? anchorRect.left : anchorRect.right - panelWidth
+  const left = Math.min(maxLeft, Math.max(minLeft, initialLeft))
+
+  const belowTop = anchorRect.bottom + FLOATING_OFFSET
+  const aboveTop = anchorRect.top - FLOATING_OFFSET - panelHeight
+  const canOpenBelow = belowTop + panelHeight <= window.innerHeight - FLOATING_VIEWPORT_PADDING
+  const canOpenAbove = aboveTop >= FLOATING_VIEWPORT_PADDING
+
+  let top = belowTop
+  if (!canOpenBelow && canOpenAbove) {
+    top = aboveTop
+  }
+
+  top = Math.max(
+    FLOATING_VIEWPORT_PADDING,
+    Math.min(top, window.innerHeight - panelHeight - FLOATING_VIEWPORT_PADDING)
+  )
+
+  return { top, left }
+}
 
 function formatDueDateWithTime(value?: string): string {
   if (!value) {
@@ -441,6 +479,8 @@ export default function CardModal({
   const descriptionSectionRef = useRef<HTMLDivElement>(null)
   const linkTitleInputRef = useRef<HTMLInputElement>(null)
   const linkUrlInputRef = useRef<HTMLInputElement>(null)
+  const linkFormAnchorRef = useRef<HTMLElement | null>(null)
+  const attachmentMenuAnchorRef = useRef<HTMLButtonElement | null>(null)
   const lastSavedDescriptionRef = useRef(card.description)
 
   const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
@@ -455,6 +495,7 @@ export default function CardModal({
   const closeLinkForm = () => {
     setShowLinkForm(false)
     setLinkFormPanel(null)
+    linkFormAnchorRef.current = null
   }
 
   const isLinkDraftEmpty = () => linkDraft.title.trim().length === 0 && linkDraft.url.trim().length === 0
@@ -506,6 +547,7 @@ export default function CardModal({
     if (!title && !url) {
       setShowLinkForm(false)
       setLinkFormPanel(null)
+      linkFormAnchorRef.current = null
       setLinkDraft({ title: '', url: '' })
       setLinkError('')
       setLinkInvalidField(null)
@@ -535,7 +577,26 @@ export default function CardModal({
     setLinkInvalidField(null)
   }, [linkDraft.title, linkDraft.url])
 
-  const toggleLinkForm = (top: number, left: number) => {
+  const calculateLinkFormPanel = useCallback((anchorRect: DOMRect): FloatingPanelState => {
+    const width = Math.min(
+      LINK_FORM_MAX_WIDTH,
+      Math.max(LINK_FORM_MIN_WIDTH, window.innerWidth - FLOATING_VIEWPORT_PADDING * 2)
+    )
+    const position = getFloatingPosition(anchorRect, width, LINK_FORM_HEIGHT_ESTIMATE, 'end')
+    return { ...position, width }
+  }, [])
+
+  const calculateAttachmentMenuPanel = useCallback((anchorRect: DOMRect) => {
+    return getFloatingPosition(anchorRect, ATTACHMENT_MENU_WIDTH, ATTACHMENT_MENU_HEIGHT, 'end')
+  }, [])
+
+  const openLinkFormFromAnchor = (anchorEl: HTMLElement) => {
+    linkFormAnchorRef.current = anchorEl
+    setLinkFormPanel(calculateLinkFormPanel(anchorEl.getBoundingClientRect()))
+    setShowLinkForm(true)
+  }
+
+  const toggleLinkForm = (anchorEl: HTMLElement) => {
     if (showLinkForm) {
       if (isLinkDraftEmpty()) {
         closeLinkForm()
@@ -547,8 +608,7 @@ export default function CardModal({
     }
 
     resetLinkFormDraft()
-    setShowLinkForm(true)
-    setLinkFormPanel({ top, left })
+    openLinkFormFromAnchor(anchorEl)
   }
 
   const copyCardLink = async () => {
@@ -611,11 +671,13 @@ export default function CardModal({
         return
       }
       setAttachmentMenu(null)
+      attachmentMenuAnchorRef.current = null
     }
 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setAttachmentMenu(null)
+        attachmentMenuAnchorRef.current = null
       }
     }
 
@@ -627,6 +689,28 @@ export default function CardModal({
       window.removeEventListener('keydown', onEscape)
     }
   }, [attachmentMenu])
+
+  useEffect(() => {
+    if (!attachmentMenu || !attachmentMenuAnchorRef.current) {
+      return
+    }
+
+    const reposition = () => {
+      if (!attachmentMenuAnchorRef.current) {
+        return
+      }
+      const nextPosition = calculateAttachmentMenuPanel(attachmentMenuAnchorRef.current.getBoundingClientRect())
+      setAttachmentMenu((previous) => (previous ? { ...previous, ...nextPosition } : previous))
+    }
+
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [attachmentMenu, calculateAttachmentMenuPanel])
 
   useEffect(() => {
     if (!showLinkForm) {
@@ -658,6 +742,27 @@ export default function CardModal({
       window.removeEventListener('keydown', onEscape)
     }
   }, [showLinkForm, attemptCloseLinkFormByOutside])
+
+  useEffect(() => {
+    if (!showLinkForm || !linkFormAnchorRef.current) {
+      return
+    }
+
+    const reposition = () => {
+      if (!linkFormAnchorRef.current) {
+        return
+      }
+      setLinkFormPanel(calculateLinkFormPanel(linkFormAnchorRef.current.getBoundingClientRect()))
+    }
+
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [showLinkForm, calculateLinkFormPanel])
 
   const syncDueInputs = (dueDate?: string) => {
     if (!dueDate) {
@@ -1076,26 +1181,39 @@ export default function CardModal({
   }
 
   const editLink = (link: LinkAttachment) => {
-    const panelWidth = 560
-    const viewportPadding = 12
-    const fallbackLeft = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, window.innerWidth / 2 - panelWidth / 2))
-    const fallbackTop = Math.max(80, window.innerHeight / 2 - 140)
+    const fallbackTrigger = document.querySelector<HTMLElement>('[data-link-form-trigger="true"]')
+    const anchorEl = attachmentMenuAnchorRef.current ?? fallbackTrigger
 
     setLinkDraft({ id: link.id, title: link.title, url: link.url })
     setLinkError('')
     setLinkInvalidField(null)
     setLinkShakeField(null)
-    setShowLinkForm(true)
-    if (attachmentMenu) {
-      setLinkFormPanel({
-        top: attachmentMenu.top + 8,
-        left: Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, attachmentMenu.left - panelWidth - 8))
-      })
+    if (anchorEl) {
+      openLinkFormFromAnchor(anchorEl)
     } else {
-      setLinkFormPanel({ top: fallbackTop, left: fallbackLeft })
+      const width = Math.min(
+        LINK_FORM_MAX_WIDTH,
+        Math.max(LINK_FORM_MIN_WIDTH, window.innerWidth - FLOATING_VIEWPORT_PADDING * 2)
+      )
+      setLinkFormPanel({
+        top: Math.max(
+          FLOATING_VIEWPORT_PADDING,
+          Math.min(
+            window.innerHeight - LINK_FORM_HEIGHT_ESTIMATE - FLOATING_VIEWPORT_PADDING,
+            window.innerHeight / 2 - LINK_FORM_HEIGHT_ESTIMATE / 2
+          )
+        ),
+        left: Math.max(
+          FLOATING_VIEWPORT_PADDING,
+          Math.min(window.innerWidth - width - FLOATING_VIEWPORT_PADDING, window.innerWidth / 2 - width / 2)
+        ),
+        width
+      })
+      setShowLinkForm(true)
     }
     setOpenedLinkMenuId(null)
     setAttachmentMenu(null)
+    attachmentMenuAnchorRef.current = null
   }
 
   const removeLink = (id: string) => {
@@ -1104,6 +1222,7 @@ export default function CardModal({
     updateCardWithActivity({ links: next }, 'link_removed', target ? `removeu link ${target.title}` : 'removeu link')
     setOpenedLinkMenuId(null)
     setAttachmentMenu(null)
+    attachmentMenuAnchorRef.current = null
   }
 
   const saveComment = () => {
@@ -1232,12 +1351,7 @@ export default function CardModal({
                 icon={<AttachmentIcon />}
                 width="w-[79px]"
                 onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  const panelWidth = 560
-                  const viewportPadding = 12
-                  const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
-                  const top = rect.bottom + 8
-                  toggleLinkForm(top, left)
+                  toggleLinkForm(event.currentTarget)
                 }}
                 active={showLinkForm}
                 isLinkTrigger
@@ -1439,12 +1553,7 @@ export default function CardModal({
               <button
                 type="button"
                 onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  const panelWidth = 560
-                  const viewportPadding = 12
-                  const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
-                  const top = rect.bottom + 8
-                  toggleLinkForm(top, left)
+                  toggleLinkForm(event.currentTarget)
                 }}
                 data-link-form-trigger="true"
                 className="flex h-8.25 w-25.5 items-center justify-center gap-1 rounded-[6px] bg-[#303134] text-[13.101px] font-semibold text-[#d1d1d1]"
@@ -1472,19 +1581,18 @@ export default function CardModal({
                     onMouseDown={(event) => {
                       event.stopPropagation()
                     }}
-                    onClick={(event) => {
+                  onClick={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect()
-                      const menuWidth = 140
-                      const viewportPadding = 8
-                      const left = Math.min(window.innerWidth - menuWidth - viewportPadding, Math.max(viewportPadding, rect.right - menuWidth))
+                      const position = calculateAttachmentMenuPanel(rect)
+                      attachmentMenuAnchorRef.current = event.currentTarget
                       setOpenedLinkMenuId((prev) => (prev === link.id ? null : link.id))
                       setAttachmentMenu((prev) =>
                         prev?.id === link.id
                           ? null
                           : {
                               id: link.id,
-                              top: rect.bottom + 6,
-                              left
+                              top: position.top,
+                              left: position.left
                             }
                       )
                     }}
@@ -1509,6 +1617,7 @@ export default function CardModal({
                     const link = cardState.links.find((item) => item.id === attachmentMenu.id)
                     if (!link) {
                       setAttachmentMenu(null)
+                      attachmentMenuAnchorRef.current = null
                       return
                     }
                     editLink(link)
@@ -1529,8 +1638,8 @@ export default function CardModal({
             {showLinkForm && linkFormPanel && (
               <div
                 data-link-form="true"
-                style={{ top: linkFormPanel.top, left: linkFormPanel.left }}
-                className="fixed z-80 w-full max-w-140 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 shadow-2xl"
+                style={{ top: linkFormPanel.top, left: linkFormPanel.left, width: linkFormPanel.width }}
+                className="fixed z-80 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 shadow-2xl"
               >
                 <div className="grid gap-2">
                   <input

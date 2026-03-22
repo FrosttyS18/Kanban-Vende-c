@@ -24,6 +24,8 @@ type SidebarProps = {
   onDeleteBoard: (boardId: string) => void
   onSetGlobalRole: (email: string, role: GlobalUserRole) => Promise<{ ok: boolean; message: string }>
   onRefreshGlobalRoles: () => void
+  mobileOpen?: boolean
+  onMobileClose?: () => void
 }
 
 const BOARD_TITLE_MAX_LENGTH = 150
@@ -104,7 +106,9 @@ export default function Sidebar({
   onRenameBoard,
   onDeleteBoard,
   onSetGlobalRole,
-  onRefreshGlobalRoles
+  onRefreshGlobalRoles,
+  mobileOpen = false,
+  onMobileClose
 }: SidebarProps) {
   const queryClient = useQueryClient()
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -119,6 +123,7 @@ export default function Sidebar({
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 }
@@ -300,17 +305,78 @@ export default function Sidebar({
     }
   }, [contextMenu])
 
+  useEffect(() => {
+    if (!mobileOpen) {
+      return
+    }
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onMobileClose?.()
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    sidebarRef.current?.focus()
+    window.addEventListener('keydown', onEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onEscape)
+    }
+  }, [mobileOpen, onMobileClose])
+
+  const handleSelectBoard = (boardId: string) => {
+    onSelectBoard(boardId)
+    if (mobileOpen) {
+      onMobileClose?.()
+    }
+  }
+
   return (
-    <aside className="hidden h-full w-63.25 border-r border-[#3d3d3d] bg-[#1e1e1e] lg:flex lg:flex-col">
+    <>
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-60 bg-black/70 lg:hidden"
+          aria-hidden="true"
+          onClick={() => onMobileClose?.()}
+        />
+      )}
+      <aside
+        ref={sidebarRef}
+        role={mobileOpen ? 'dialog' : undefined}
+        aria-modal={mobileOpen ? true : undefined}
+        aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
+        tabIndex={mobileOpen ? -1 : undefined}
+        className={`h-full w-63.25 border-r border-[#3d3d3d] bg-[#1e1e1e] ${
+          mobileOpen ? 'fixed inset-y-0 left-0 z-70 flex flex-col lg:static lg:z-auto' : 'hidden lg:flex lg:flex-col'
+        }`}
+      >
       <div className="px-8 pb-6 pt-7">
         <div className="mb-10 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[18px] font-semibold text-white">
             <SquareKanban className="size-4 text-[#d1d1d1]" />
             Boards
           </div>
+          {mobileOpen && (
+            <button
+              type="button"
+              onClick={() => onMobileClose?.()}
+              className="inline-flex size-8 items-center justify-center rounded-md border border-white/20 text-[#d1d1d1] hover:bg-white/10 lg:hidden"
+              aria-label="Fechar menu lateral"
+            >
+              <X className="size-4" />
+            </button>
+          )}
           <button
             type="button"
-            onClick={onCreateBoard}
+            onClick={() => {
+              onCreateBoard()
+              if (mobileOpen) {
+                onMobileClose?.()
+              }
+            }}
             className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
             aria-label="Criar board"
             disabled={!canCreateBoard}
@@ -328,7 +394,7 @@ export default function Sidebar({
                   key={board.id}
                   board={board}
                   active={board.id === activeBoardId}
-                  onSelectBoard={onSelectBoard}
+                  onSelectBoard={handleSelectBoard}
                   onContextMenu={(event, boardId) => {
                     const targetBoard = boards.find((item) => item.id === boardId)
                     if (!targetBoard?.hasAccess) {
@@ -352,7 +418,12 @@ export default function Sidebar({
       <div className="mt-auto border-t border-[#3d3d3d] px-8 py-5">
         <button
           type="button"
-          onClick={openSettings}
+          onClick={() => {
+            openSettings()
+            if (mobileOpen) {
+              onMobileClose?.()
+            }
+          }}
           className="flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary"
           aria-label="Configurações"
         >
@@ -750,7 +821,8 @@ export default function Sidebar({
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   )
 }
 
