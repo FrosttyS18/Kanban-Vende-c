@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link2, MessageSquareText } from 'lucide-react'
 import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
@@ -9,6 +9,10 @@ import LabelsPopover from '@/components/board/card-modal/LabelsPopover'
 import DatePopover from '@/components/board/card-modal/DatePopover'
 import { isAllowedCardActivityEvent } from '@/constants/activityEvents'
 import { normalizeMojibake } from '@/utils/normalizeMojibake'
+import iconFigma from '@/assets/icons/icon-figma.svg'
+import iconGoogleDrive from '@/assets/icons/icon-google-drive.svg'
+import iconPandaVideo from '@/assets/icons/icon-panda-video.svg'
+import iconYoutube from '@/assets/icons/icon-youtube.svg'
 
 type CardModalProps = {
   isOpen: boolean
@@ -33,8 +37,10 @@ type LinkDraft = {
   id?: string
   title: string
   url: string
-  type: 'drive' | 'figma' | 'other'
 }
+
+type LinkProvider = 'drive' | 'figma' | 'youtube' | 'panda' | 'other'
+type LinkFormField = 'title' | 'url'
 
 type AttachmentMenuState = {
   id: string
@@ -160,40 +166,77 @@ function getLabelTextClass(color: string): string {
   return luminance > 0.55 ? 'text-[#242528]' : 'text-white'
 }
 
-function detectLinkType(url: string): LinkDraft['type'] {
-  const value = url.toLowerCase()
+function detectLinkProvider(url: string): LinkProvider {
+  const value = url.toLowerCase().trim()
+  if (!value) {
+    return 'other'
+  }
+
+  if (value.includes('youtube.com') || value.includes('youtu.be')) {
+    return 'youtube'
+  }
+
+  if (value.includes('pandavideo.com.br') || value.includes('panda.video')) {
+    return 'panda'
+  }
   if (value.includes('figma.com')) {
     return 'figma'
   }
-  if (value.includes('drive.google.com')) {
+  if (value.includes('drive.google.com') || value.includes('docs.google.com')) {
     return 'drive'
   }
   return 'other'
 }
 
-function LinkTypeIcon({ type }: { type: LinkDraft['type'] }) {
-  if (type === 'drive') {
+function getStoredLinkType(provider: LinkProvider): LinkAttachment['type'] {
+  if (provider === 'drive' || provider === 'figma') {
+    return provider
+  }
+  return 'other'
+}
+
+function resolveLinkProvider(url: string, savedType?: LinkAttachment['type']): LinkProvider {
+  const detected = detectLinkProvider(url)
+  if (detected !== 'other') {
+    return detected
+  }
+
+  if (savedType === 'drive' || savedType === 'figma') {
+    return savedType
+  }
+
+  return 'other'
+}
+
+function LinkTypeIcon({ provider }: { provider: LinkProvider }) {
+  if (provider === 'drive') {
     return (
       <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
-        <svg viewBox="0 0 24 24" className="h-5 w-5">
-          <path d="M8.1 3.2h7.8l4.1 7.1h-7.8z" fill="#0F9D58" />
-          <path d="M4 10.3 8.1 3.2l3.9 6.8-3.9 6.8z" fill="#F4B400" />
-          <path d="m20 10.3-4.1 7.1H8.1l4-6.8h7.9z" fill="#4285F4" />
-        </svg>
+        <img src={iconGoogleDrive} alt="" className="h-5 w-5 object-contain" />
       </span>
     )
   }
 
-  if (type === 'figma') {
+  if (provider === 'figma') {
     return (
       <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
-        <svg viewBox="0 0 16 24" className="h-5.5 w-3.75">
-          <path d="M5.3 24a5.3 5.3 0 1 1 0-10.6h2.6V18.7A5.3 5.3 0 0 1 5.3 24Z" fill="#0ACF83" />
-          <path d="M0 18.7a5.3 5.3 0 0 1 5.3-5.3h2.6V24H5.3A5.3 5.3 0 0 1 0 18.7Z" fill="#A259FF" />
-          <path d="M0 8a5.3 5.3 0 0 1 5.3-5.3h2.6v10.7H5.3A5.3 5.3 0 0 1 0 8Z" fill="#F24E1E" />
-          <path d="M8 2.7h2.7a5.3 5.3 0 1 1 0 10.7H8V2.7Z" fill="#FF7262" />
-          <path d="M13.3 8A5.3 5.3 0 1 1 8 2.7v10.7a5.3 5.3 0 0 1 5.3-5.4Z" fill="#1ABCFE" />
-        </svg>
+        <img src={iconFigma} alt="" className="h-5 w-5 object-contain" />
+      </span>
+    )
+  }
+
+  if (provider === 'youtube') {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
+        <img src={iconYoutube} alt="" className="h-5 w-5 object-contain" />
+      </span>
+    )
+  }
+
+  if (provider === 'panda') {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-[5px] bg-[#303134]" aria-hidden="true">
+        <img src={iconPandaVideo} alt="" className="h-5 w-5 object-contain" />
       </span>
     )
   }
@@ -386,17 +429,127 @@ export default function CardModal({
     const min = String(date.getMinutes()).padStart(2, '0')
     return `${hh}:${min}`
   })
-  const [linkDraft, setLinkDraft] = useState<LinkDraft>({ title: '', url: '', type: 'other' })
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>({ title: '', url: '' })
   const [linkError, setLinkError] = useState('')
+  const [linkInvalidField, setLinkInvalidField] = useState<LinkFormField | null>(null)
+  const [linkShakeField, setLinkShakeField] = useState<LinkFormField | null>(null)
   const [newChecklistTitle, setNewChecklistTitle] = useState('')
   const [checklistDraftItems, setChecklistDraftItems] = useState<Record<string, string>>({})
   const [checklistAnchorEl, setChecklistAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [labelsAnchorEl, setLabelsAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [dateAnchorEl, setDateAnchorEl] = useState<HTMLButtonElement | null>(null)
   const descriptionSectionRef = useRef<HTMLDivElement>(null)
+  const linkTitleInputRef = useRef<HTMLInputElement>(null)
+  const linkUrlInputRef = useRef<HTMLInputElement>(null)
   const lastSavedDescriptionRef = useRef(card.description)
 
   const actor = useMemo(() => members.find((member) => member.id === currentMemberId) ?? members[0], [members, currentMemberId])
+
+  const resetLinkFormDraft = () => {
+    setLinkDraft({ title: '', url: '' })
+    setLinkError('')
+    setLinkInvalidField(null)
+    setLinkShakeField(null)
+  }
+
+  const closeLinkForm = () => {
+    setShowLinkForm(false)
+    setLinkFormPanel(null)
+  }
+
+  const isLinkDraftEmpty = () => linkDraft.title.trim().length === 0 && linkDraft.url.trim().length === 0
+
+  const focusLinkField = (field: LinkFormField) => {
+    if (field === 'title') {
+      linkTitleInputRef.current?.focus()
+      return
+    }
+    linkUrlInputRef.current?.focus()
+  }
+
+  const triggerLinkFieldAttention = (field: LinkFormField, message: string) => {
+    setLinkError(message)
+    setLinkInvalidField(field)
+    setLinkShakeField(field)
+    window.setTimeout(() => setLinkShakeField((prev) => (prev === field ? null : prev)), 320)
+    focusLinkField(field)
+  }
+
+  const validateLinkDraft = (): { valid: boolean; title: string; url: string } => {
+    const title = linkDraft.title.trim()
+    const url = linkDraft.url.trim()
+
+    if (!title) {
+      triggerLinkFieldAttention('title', 'Preencha o título do link.')
+      return { valid: false, title, url }
+    }
+
+    if (!url) {
+      triggerLinkFieldAttention('url', 'Preencha a URL do link.')
+      return { valid: false, title, url }
+    }
+
+    if (!validateUrl(url)) {
+      triggerLinkFieldAttention('url', 'URL inválida.')
+      return { valid: false, title, url }
+    }
+
+    setLinkError('')
+    setLinkInvalidField(null)
+    return { valid: true, title, url }
+  }
+
+  const attemptCloseLinkFormByOutside = useCallback(() => {
+    const title = linkDraft.title.trim()
+    const url = linkDraft.url.trim()
+
+    if (!title && !url) {
+      setShowLinkForm(false)
+      setLinkFormPanel(null)
+      setLinkDraft({ title: '', url: '' })
+      setLinkError('')
+      setLinkInvalidField(null)
+      setLinkShakeField(null)
+      return
+    }
+
+    if (!title) {
+      setLinkError('Título obrigatório.')
+      setLinkInvalidField('title')
+      setLinkShakeField('title')
+      window.setTimeout(() => setLinkShakeField((prev) => (prev === 'title' ? null : prev)), 320)
+      linkTitleInputRef.current?.focus()
+      return
+    }
+
+    if (!url) {
+      setLinkError('URL obrigatória.')
+      setLinkInvalidField('url')
+      setLinkShakeField('url')
+      window.setTimeout(() => setLinkShakeField((prev) => (prev === 'url' ? null : prev)), 320)
+      linkUrlInputRef.current?.focus()
+      return
+    }
+
+    setLinkError('Salve o link ou clique em Cancelar.')
+    setLinkInvalidField(null)
+  }, [linkDraft.title, linkDraft.url])
+
+  const toggleLinkForm = (top: number, left: number) => {
+    if (showLinkForm) {
+      if (isLinkDraftEmpty()) {
+        closeLinkForm()
+        resetLinkFormDraft()
+      } else {
+        attemptCloseLinkFormByOutside()
+      }
+      return
+    }
+
+    resetLinkFormDraft()
+    setShowLinkForm(true)
+    setLinkFormPanel({ top, left })
+  }
 
   const copyCardLink = async () => {
     if (typeof window === 'undefined') {
@@ -488,14 +641,12 @@ export default function CardModal({
       if (target.closest('[data-link-form-trigger="true"]')) {
         return
       }
-      setShowLinkForm(false)
-      setLinkFormPanel(null)
+      attemptCloseLinkFormByOutside()
     }
 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setShowLinkForm(false)
-        setLinkFormPanel(null)
+        attemptCloseLinkFormByOutside()
       }
     }
 
@@ -506,7 +657,7 @@ export default function CardModal({
       window.removeEventListener('mousedown', onPointerDown)
       window.removeEventListener('keydown', onEscape)
     }
-  }, [showLinkForm])
+  }, [showLinkForm, attemptCloseLinkFormByOutside])
 
   const syncDueInputs = (dueDate?: string) => {
     if (!dueDate) {
@@ -897,40 +1048,31 @@ export default function CardModal({
   }
 
   const submitLink = () => {
-    const title = linkDraft.title.trim()
-    const url = linkDraft.url.trim()
-
-    if (!title || !url) {
-      setLinkError('Preencha título e URL.')
+    const { valid, title, url } = validateLinkDraft()
+    if (!valid) {
       return
     }
 
-    if (!validateUrl(url)) {
-      setLinkError('URL inválida.')
-      return
-    }
+    const provider = detectLinkProvider(url)
+    const nextType = getStoredLinkType(provider)
 
     if (linkDraft.id) {
       const currentLink = cardState.links.find((link) => link.id === linkDraft.id)
-      if (currentLink && currentLink.title === title && currentLink.url === url && currentLink.type === linkDraft.type) {
-        setLinkDraft({ title: '', url: '', type: 'other' })
-        setLinkError('')
-        setShowLinkForm(false)
-        setLinkFormPanel(null)
+      if (currentLink && currentLink.title === title && currentLink.url === url && currentLink.type === nextType) {
+        resetLinkFormDraft()
+        closeLinkForm()
         return
       }
 
-      const next = cardState.links.map((link) => (link.id === linkDraft.id ? { ...link, title, url, type: linkDraft.type } : link))
+      const next = cardState.links.map((link) => (link.id === linkDraft.id ? { ...link, title, url, type: nextType } : link))
       updateCardWithActivity({ links: next }, 'link_updated', `editou link ${title}`)
     } else {
-      const nextLink: LinkAttachment = { id: createId('link'), title, url, type: linkDraft.type, createdAt: new Date().toISOString() }
+      const nextLink: LinkAttachment = { id: createId('link'), title, url, type: nextType, createdAt: new Date().toISOString() }
       updateCardWithActivity({ links: [...cardState.links, nextLink] }, 'link_added', `adicionou link ${title}`)
     }
 
-    setLinkDraft({ title: '', url: '', type: 'other' })
-    setLinkError('')
-    setShowLinkForm(false)
-    setLinkFormPanel(null)
+    resetLinkFormDraft()
+    closeLinkForm()
   }
 
   const editLink = (link: LinkAttachment) => {
@@ -939,7 +1081,10 @@ export default function CardModal({
     const fallbackLeft = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, window.innerWidth / 2 - panelWidth / 2))
     const fallbackTop = Math.max(80, window.innerHeight / 2 - 140)
 
-    setLinkDraft({ id: link.id, title: link.title, url: link.url, type: link.type || detectLinkType(link.url) })
+    setLinkDraft({ id: link.id, title: link.title, url: link.url })
+    setLinkError('')
+    setLinkInvalidField(null)
+    setLinkShakeField(null)
     setShowLinkForm(true)
     if (attachmentMenu) {
       setLinkFormPanel({
@@ -976,7 +1121,9 @@ export default function CardModal({
   const timeline = cardState.activities
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cartão'}>
+    <>
+      <style>{'@keyframes link-field-shake { 0% { transform: translateX(0); } 25% { transform: translateX(-5px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-4px); } 100% { transform: translateX(0); } }'}</style>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cartão'}>
       <div className="h-164.25 w-270.5 max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#585353] bg-[#242528]">
         <header className="flex h-14.75 items-center justify-between border-b border-[#585353] bg-[#242528] px-6.5">
           <div className="flex items-center gap-2">
@@ -1090,13 +1237,7 @@ export default function CardModal({
                   const viewportPadding = 12
                   const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
                   const top = rect.bottom + 8
-                  setLinkDraft({ title: '', url: '', type: 'other' })
-                  setLinkError('')
-                  setShowLinkForm((prev) => {
-                    const next = !prev
-                    setLinkFormPanel(next ? { top, left } : null)
-                    return next
-                  })
+                  toggleLinkForm(top, left)
                 }}
                 active={showLinkForm}
                 isLinkTrigger
@@ -1303,13 +1444,7 @@ export default function CardModal({
                   const viewportPadding = 12
                   const left = Math.max(viewportPadding, Math.min(window.innerWidth - panelWidth - viewportPadding, rect.right - panelWidth))
                   const top = rect.bottom + 8
-                  setLinkDraft({ title: '', url: '', type: 'other' })
-                  setLinkError('')
-                  setShowLinkForm((prev) => {
-                    const next = !prev
-                    setLinkFormPanel(next ? { top, left } : null)
-                    return next
-                  })
+                  toggleLinkForm(top, left)
                 }}
                 data-link-form-trigger="true"
                 className="flex h-8.25 w-25.5 items-center justify-center gap-1 rounded-[6px] bg-[#303134] text-[13.101px] font-semibold text-[#d1d1d1]"
@@ -1323,7 +1458,7 @@ export default function CardModal({
             <div className="mt-2 space-y-2 pb-2">
               {cardState.links.map((link) => (
                 <article key={link.id} className="relative flex min-h-12.25 items-center rounded-[5px] bg-[#303134] px-3 py-2">
-                  <LinkTypeIcon type={link.type || detectLinkType(link.url)} />
+                  <LinkTypeIcon provider={resolveLinkProvider(link.url, link.type)} />
                   <div className="ml-3 min-w-0 flex-1">
                     <a href={link.url} target="_blank" rel="noreferrer" className="block truncate text-[16px] font-semibold leading-tight text-[#d1d1d1] hover:text-[#ff0068]">
                       {link.title}
@@ -1393,28 +1528,41 @@ export default function CardModal({
                 style={{ top: linkFormPanel.top, left: linkFormPanel.left }}
                 className="fixed z-80 w-full max-w-140 rounded-xl border border-[#3f3f3f] bg-[#303134] p-3 shadow-2xl"
               >
-                <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
+                <div className="grid gap-2">
                   <input
+                    ref={linkTitleInputRef}
                     value={linkDraft.title}
-                    onChange={(event) => setLinkDraft((prev) => ({ ...prev, title: event.target.value }))}
+                    onChange={(event) => {
+                      setLinkDraft((prev) => ({ ...prev, title: event.target.value }))
+                      if (linkInvalidField === 'title') {
+                        setLinkInvalidField(null)
+                        setLinkError('')
+                      }
+                    }}
                     placeholder={'Título do link'}
-                    className="h-9 rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] placeholder:text-[#7d7d7d] outline-none focus:border-[#ff0068]"
+                    aria-invalid={linkInvalidField === 'title'}
+                    style={linkShakeField === 'title' ? { animation: 'link-field-shake 0.28s ease-in-out 2' } : undefined}
+                    className={`h-9 rounded-[6px] border bg-[#242528] px-3 text-sm text-[#d1d1d1] placeholder:text-[#7d7d7d] outline-none focus:border-[#ff0068] ${
+                      linkInvalidField === 'title' ? 'border-[#ff0068] ring-1 ring-[#ff0068]/40' : 'border-[#525252]'
+                    }`}
                   />
-                  <select
-                    value={linkDraft.type}
-                    onChange={(event) => setLinkDraft((prev) => ({ ...prev, type: event.target.value as LinkDraft['type'] }))}
-                    className="h-9 rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] outline-none focus:border-[#ff0068]"
-                  >
-                    <option value="drive">Google Drive</option>
-                    <option value="figma">Figma</option>
-                    <option value="other">Outro</option>
-                  </select>
                 </div>
                 <input
+                  ref={linkUrlInputRef}
                   value={linkDraft.url}
-                  onChange={(event) => setLinkDraft((prev) => ({ ...prev, url: event.target.value }))}
+                  onChange={(event) => {
+                    setLinkDraft((prev) => ({ ...prev, url: event.target.value }))
+                    if (linkInvalidField === 'url') {
+                      setLinkInvalidField(null)
+                      setLinkError('')
+                    }
+                  }}
                   placeholder="https://..."
-                  className="mt-2 h-9 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 text-sm text-[#d1d1d1] placeholder:text-[#7d7d7d] outline-none focus:border-[#ff0068]"
+                  aria-invalid={linkInvalidField === 'url'}
+                  style={linkShakeField === 'url' ? { animation: 'link-field-shake 0.28s ease-in-out 2' } : undefined}
+                  className={`mt-2 h-9 w-full rounded-[6px] border bg-[#242528] px-3 text-sm text-[#d1d1d1] placeholder:text-[#7d7d7d] outline-none focus:border-[#ff0068] ${
+                    linkInvalidField === 'url' ? 'border-[#ff0068] ring-1 ring-[#ff0068]/40' : 'border-[#525252]'
+                  }`}
                 />
                 {linkError && <p className="mt-1 text-xs text-[#da7e77]">{linkError}</p>}
                 <div className="mt-2 flex gap-2">
@@ -1424,10 +1572,8 @@ export default function CardModal({
                   <button
                     type="button"
                     onClick={() => {
-                      setShowLinkForm(false)
-                      setLinkFormPanel(null)
-                      setLinkDraft({ title: '', url: '', type: 'other' })
-                      setLinkError('')
+                      resetLinkFormDraft()
+                      closeLinkForm()
                     }}
                     className="h-8 rounded-[6px] border border-[#525252] px-3 text-xs font-semibold text-[#d1d1d1]"
                   >
@@ -1489,7 +1635,8 @@ export default function CardModal({
           </aside>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 
