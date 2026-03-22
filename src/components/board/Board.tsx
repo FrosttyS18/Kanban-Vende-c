@@ -450,11 +450,6 @@ export default function Board({
     [activeBoardId, applyStore]
   )
 
-  const setLastBoardIdMutation = useMutation({
-    mutationFn: (boardId: string | null) => setLastBoardIdRemote(boardId),
-    onError: () => undefined
-  })
-
   const recordActivityMutation = useMutation({
     mutationFn: (input: RecordCardActivityInput) => recordCardActivityRemote(input),
     onError: (error, input) => {
@@ -571,8 +566,16 @@ export default function Board({
     if (isLoadingStore) {
       return
     }
-    setLastBoardIdMutation.mutate(activeBoardId || null)
-  }, [activeBoardId, isLoadingStore, setLastBoardIdMutation])
+    let cancelled = false
+    void setLastBoardIdRemote(activeBoardId || null).catch(() => {
+      if (cancelled) {
+        return
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeBoardId, isLoadingStore])
 
   const profileNotifications = useMemo(
     () =>
