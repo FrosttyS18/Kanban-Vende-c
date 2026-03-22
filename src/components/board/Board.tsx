@@ -143,6 +143,24 @@ function wait(ms: number): Promise<void> {
   })
 }
 
+function isQueryCancellationError(error: unknown): boolean {
+  const name =
+    typeof error === 'object' && error && 'name' in error && typeof error.name === 'string'
+      ? error.name
+      : ''
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalizedName = name.toLowerCase()
+  const normalizedMessage = message.toLowerCase()
+
+  return (
+    normalizedName === 'cancellederror' ||
+    normalizedName === 'cancelederror' ||
+    normalizedMessage === 'cancellederror' ||
+    normalizedMessage === 'cancelederror' ||
+    normalizedMessage.includes('query was cancelled')
+  )
+}
+
 function getBoardColumns(snapshot: BoardStore, boardId: string): ColumnData[] {
   return snapshot.columns
     .filter((column) => column.boardId === boardId)
@@ -363,6 +381,9 @@ export default function Board({
         if (requestId !== loadStoreRequestIdRef.current) {
           return
         }
+        if (isQueryCancellationError(error)) {
+          return
+        }
         const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
         setStoreError(message)
       } finally {
@@ -399,6 +420,9 @@ export default function Board({
 
   useEffect(() => {
     if (!boardStoreQuery.error || manualStoreLoadingRef.current) {
+      return
+    }
+    if (isQueryCancellationError(boardStoreQuery.error)) {
       return
     }
     const message = boardStoreQuery.error instanceof Error ? boardStoreQuery.error.message : 'Nao foi possivel carregar os boards.'
@@ -1147,7 +1171,7 @@ export default function Board({
       includeArchived: true
     })
     if (deleteResult.ok) {
-      showOperationSuccess('Cartao excluido com sucesso.')
+      showOperationSuccess('Cartão excluído com sucesso.')
       return true
     }
     return false
@@ -1188,7 +1212,7 @@ export default function Board({
       includeArchived: true
     })
     if (archiveResult.ok) {
-      showOperationSuccess('Cartao arquivado com sucesso.')
+      showOperationSuccess('Cartão arquivado com sucesso.')
       return true
     }
     return false
@@ -1269,7 +1293,7 @@ export default function Board({
       resourceId: columnId
     })
     if (deleteResult.ok) {
-      showOperationSuccess('Lista excluida com sucesso.')
+      showOperationSuccess('Lista excluída com sucesso.')
       return true
     }
     return false
@@ -1312,7 +1336,7 @@ export default function Board({
 
     if (confirmContextAction.kind === 'archive_card') {
       return {
-        title: 'Arquivar cartao',
+        title: 'Arquivar cartão',
         description: `Deseja arquivar "${confirmContextAction.targetTitle}"?`,
         confirmLabel: 'Arquivar'
       }
@@ -1320,15 +1344,15 @@ export default function Board({
 
     if (confirmContextAction.kind === 'delete_card') {
       return {
-        title: 'Excluir cartao',
-        description: `Deseja excluir "${confirmContextAction.targetTitle}"? Esta acao nao pode ser desfeita.`,
+        title: 'Excluir cartão',
+        description: `Deseja excluir "${confirmContextAction.targetTitle}"? Esta ação não pode ser desfeita.`,
         confirmLabel: 'Excluir'
       }
     }
 
     return {
       title: 'Excluir lista',
-      description: `Deseja excluir a lista "${confirmContextAction.targetTitle}"? Os cartoes desta lista tambem serao removidos.`,
+      description: `Deseja excluir a lista "${confirmContextAction.targetTitle}"? Os cartões desta lista também serão removidos.`,
       confirmLabel: 'Excluir lista'
     }
   }, [confirmContextAction])
