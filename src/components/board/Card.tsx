@@ -140,6 +140,7 @@ export default function Card({
   const [modalOpenAtSignal, setModalOpenAtSignal] = useState(closeModalSignal ?? 0)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [blockedRouteToken, setBlockedRouteToken] = useState<number | null>(null)
+  const lastNotifiedRouteOpenTokenRef = useRef<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
@@ -184,6 +185,19 @@ export default function Card({
   const isRouteRequestOpen = !disableModal && !isOverlay && routeOpenToken !== null && blockedRouteToken !== routeOpenToken
   const isSignalMatching = closeModalSignal === undefined || modalOpenAtSignal === closeModalSignal
   const isModalVisible = (isModalOpen && isSignalMatching) || isRouteRequestOpen
+
+  useEffect(() => {
+    if (!isRouteRequestOpen || routeOpenToken === null) {
+      return
+    }
+
+    if (lastNotifiedRouteOpenTokenRef.current === routeOpenToken) {
+      return
+    }
+
+    lastNotifiedRouteOpenTokenRef.current = routeOpenToken
+    onOpenModal?.(card.id)
+  }, [card.id, isRouteRequestOpen, onOpenModal, routeOpenToken])
 
   if (isDragging) {
     return <div ref={setNodeRef} style={style} className="h-32.25 rounded-[9px] bg-[#242528]/50" />
