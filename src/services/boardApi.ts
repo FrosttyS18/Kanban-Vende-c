@@ -1678,10 +1678,16 @@ type RealtimeScope = {
   checklistIds?: string[]
 }
 
+type RealtimeChannelIssue = {
+  status: Exclude<RealtimeStatus, 'SUBSCRIBED'>
+  expectedClose: boolean
+}
+
 type RealtimeSubscribeOptions = {
   currentUserId?: string
   initialScope?: RealtimeScope
-  onChannelIssue?: (status: Exclude<RealtimeStatus, 'SUBSCRIBED'>) => void
+  onChannelIssue?: (issue: RealtimeChannelIssue) => void
+  onStatusChange?: (status: RealtimeStatus) => void
   onSubscribed?: () => void
 }
 
@@ -1757,12 +1763,18 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
         .forEach((row) => scopedChecklistIds.add(`${row.card_id}:${row.id}`))
   }
 
-  const notifyChannelIssue = (status: Exclude<RealtimeStatus, 'SUBSCRIBED'>) => {
+  const notifyChannelIssue = (status: Exclude<RealtimeStatus, 'SUBSCRIBED'>, expectedClose: boolean = false) => {
+    if (status === 'CLOSED' && expectedClose) {
+      return
+    }
     if (hasIssuedErrorSignal) {
       return
     }
     hasIssuedErrorSignal = true
-    options?.onChannelIssue?.(status)
+    options?.onChannelIssue?.({
+      status,
+      expectedClose
+    })
   }
 
   const isScopedCardEvent = (payload: RealtimePayload): boolean => {
@@ -1844,7 +1856,6 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
     const typedPayload = payload as RealtimePayload
     const checklistId = getPayloadString(typedPayload, 'checklist_id')
     if (!checklistId) {
-      onChange()
       return
     }
     const hasChecklistInScope = Array.from(scopedChecklistIds).some((value) => value.endsWith(`:${checklistId}`))
@@ -1865,13 +1876,18 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
   })
 
   channel.subscribe((status) => {
+    options?.onStatusChange?.(status)
     if (status === 'SUBSCRIBED') {
       hasIssuedErrorSignal = false
       options?.onSubscribed?.()
       return
     }
-    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
       notifyChannelIssue(status)
+      return
+    }
+    if (status === 'CLOSED') {
+      notifyChannelIssue(status, disposed)
     }
   })
   void seedScope()

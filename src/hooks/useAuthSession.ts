@@ -86,6 +86,9 @@ export function useAuthSession() {
   const allowedDomain = useMemo(() => getAllowedEmailDomain(), [])
   const clearedRateLimitForUserRef = useRef<string | null>(null)
   const queuedAuthSessionRef = useRef<Session | null>(null)
+  const sessionSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const bootstrapRunIdRef = useRef(0)
+  const bootstrapInFlightRef = useRef(false)
 
   const applyRateLimit = useCallback((status: LoginRateLimitStatus) => {
     setRateLimitStatus(status)
@@ -122,6 +125,15 @@ export function useAuthSession() {
     },
     [allowedDomain, applyRateLimit],
   )
+
+  const enqueueSessionSync = useCallback((task: () => Promise<void>) => {
+    const nextTask = sessionSyncQueueRef.current
+      .catch(() => undefined)
+      .then(task)
+
+    sessionSyncQueueRef.current = nextTask.catch(() => undefined)
+    return nextTask
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -161,14 +173,25 @@ export function useAuthSession() {
     }
 
     const initializeSession = async () => {
+      if (bootstrapInFlightRef.current) {
+        return
+      }
+      bootstrapInFlightRef.current = true
+      const runId = ++bootstrapRunIdRef.current
+
       try {
         const currentSession = await getSessionWithTimeout()
-        if (!mounted) return
-        await applySession(currentSession)
-        await syncRateLimitStatus()
+        if (!mounted || runId !== bootstrapRunIdRef.current) return
+        await enqueueSessionSync(async () => {
+          await applySession(currentSession)
+          await syncRateLimitStatus()
+        })
+        if (!mounted || runId !== bootstrapRunIdRef.current) {
+          return
+        }
         setSessionBootstrapError(null)
       } catch (initializationError) {
-        if (!mounted) return
+        if (!mounted || runId !== bootstrapRunIdRef.current) return
         const message =
           initializationError instanceof Error &&
           initializationError.message === "SESSION_BOOTSTRAP_TIMEOUT"
@@ -177,7 +200,12 @@ export function useAuthSession() {
         console.error("[auth_session_bootstrap_failed]", initializationError)
         setSessionBootstrapError(message)
       } finally {
-        if (mounted) setLoading(false)
+        if (runId === bootstrapRunIdRef.current) {
+          bootstrapInFlightRef.current = false
+        }
+        if (mounted && runId === bootstrapRunIdRef.current) {
+          setLoading(false)
+        }
       }
     }
 
@@ -197,7 +225,7 @@ export function useAuthSession() {
       unsubscribe()
       window.clearInterval(timer)
     }
-  }, [applySession, sessionBootstrapAttempt])
+  }, [applySession, enqueueSessionSync, sessionBootstrapAttempt])
 
   useEffect(() => {
     if (authEventTick === 0) {
@@ -208,7 +236,9 @@ export function useAuthSession() {
 
     const processQueuedAuthSession = async () => {
       try {
-        await applySession(queuedAuthSessionRef.current)
+        await enqueueSessionSync(async () => {
+          await applySession(queuedAuthSessionRef.current)
+        })
         if (!cancelled) {
           setSessionBootstrapError(null)
         }
@@ -224,11 +254,13 @@ export function useAuthSession() {
     return () => {
       cancelled = true
     }
-  }, [applySession, authEventTick])
+  }, [applySession, authEventTick, enqueueSessionSync])
 
   const retrySessionBootstrap = useCallback(() => {
     setSessionBootstrapError(null)
     setLoading(true)
+    bootstrapInFlightRef.current = false
+    bootstrapRunIdRef.current += 1
     setSessionBootstrapAttempt((previous) => previous + 1)
   }, [])
 

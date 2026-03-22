@@ -229,6 +229,9 @@ export default function Board({
   const operationErrorTimerRef = useRef<number | null>(null)
   const storeRef = useRef<BoardStore>(EMPTY_STORE)
   const dragSnapshotRef = useRef<{ cards: CardData[]; columns: ColumnData[] } | null>(null)
+  const loadStoreRequestIdRef = useRef(0)
+  const channelIssueStreakRef = useRef(0)
+  const stampCheckFailureStreakRef = useRef(0)
 
   const applyStore = useCallback((nextStore: BoardStore) => {
     storeRef.current = nextStore
@@ -257,6 +260,9 @@ export default function Board({
       isRealtimeRefreshingRef.current = false
       stampCheckInFlightRef.current = false
       lastStampCheckAtRef.current = 0
+      loadStoreRequestIdRef.current = 0
+      channelIssueStreakRef.current = 0
+      stampCheckFailureStreakRef.current = 0
     }
   }, [])
 
@@ -280,6 +286,7 @@ export default function Board({
 
   const loadStore = useCallback(
     async (preferredBoardId?: string, options?: { forceRefresh?: boolean; silent?: boolean; bypassInFlight?: boolean }) => {
+      const requestId = ++loadStoreRequestIdRef.current
       const shouldShowLoader = options?.silent !== true
       if (shouldShowLoader) {
         setIsLoadingStore(true)
@@ -310,15 +317,22 @@ export default function Board({
         }
 
         if (!nextStore) {
-          throw (lastError ?? new Error('Não foi possível carregar os boards.'))
+          throw (lastError ?? new Error('Nao foi possivel carregar os boards.'))
+        }
+
+        if (requestId !== loadStoreRequestIdRef.current) {
+          return
         }
 
         applyStore(nextStore)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Não foi possível carregar os boards.'
+        if (requestId !== loadStoreRequestIdRef.current) {
+          return
+        }
+        const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os boards.'
         setStoreError(message)
       } finally {
-        if (shouldShowLoader) {
+        if (shouldShowLoader && requestId === loadStoreRequestIdRef.current) {
           setIsLoadingStore(false)
         }
       }
@@ -488,7 +502,7 @@ export default function Board({
       }
 
       pendingRealtimeRefreshRef.current = true
-      logRealtime('realtime_event_received', {
+      logRealtime('refresh_enqueued', {
         boardId: activeBoardId,
         mode
       })
@@ -513,6 +527,9 @@ export default function Board({
 
     const requestBoardStampCheck = async (source: 'interaction' | 'focus' | 'visibility' | 'heartbeat') => {
       if (effectDisposed) {
+        return
+      }
+      if (pendingRealtimeRefreshRef.current || isRealtimeRefreshingRef.current) {
         return
       }
 
@@ -544,13 +561,21 @@ export default function Board({
           })
           requestRealtimeRefresh('immediate')
         }
+        stampCheckFailureStreakRef.current = 0
       } catch (error) {
-        console.warn('[board_sync_stamp_check_failed]', {
-          boardId,
-          source,
-          message: error instanceof Error ? error.message : 'Erro desconhecido',
-          error
-        })
+        stampCheckFailureStreakRef.current += 1
+        if (import.meta.env.DEV) {
+          console.warn('[board_sync_stamp_check_failed]', {
+            boardId,
+            source,
+            attempt: stampCheckFailureStreakRef.current,
+            message: error instanceof Error ? error.message : 'Erro desconhecido',
+            error
+          })
+        }
+        if (stampCheckFailureStreakRef.current >= 3) {
+          showOperationError('Sincronizacao temporariamente instavel. Recuperando automaticamente.')
+        }
       } finally {
         stampCheckInFlightRef.current = false
       }
@@ -611,16 +636,37 @@ export default function Board({
       },
       onSubscribed: () => {
         realtimeReconnectAttemptRef.current = 0
+        channelIssueStreakRef.current = 0
         if (realtimeReconnectTimerRef.current) {
           window.clearTimeout(realtimeReconnectTimerRef.current)
           realtimeReconnectTimerRef.current = null
         }
       },
-      onChannelIssue: (status) => {
-        console.warn('[realtime_channel_issue]', {
+      onStatusChange: (status) => {
+        logRealtime('channel_status', {
           boardId: activeBoardId,
           status
         })
+      },
+      onChannelIssue: ({ status, expectedClose }) => {
+        if (expectedClose) {
+          logRealtime('channel_closed_expected', {
+            boardId: activeBoardId
+          })
+          return
+        }
+
+        channelIssueStreakRef.current += 1
+        if (import.meta.env.DEV) {
+          console.warn('[realtime_channel_issue]', {
+            boardId: activeBoardId,
+            status,
+            streak: channelIssueStreakRef.current
+          })
+        }
+        if (channelIssueStreakRef.current >= 3) {
+          showOperationError('Sincronizacao instavel. Tentando reconectar automaticamente.')
+        }
         requestRealtimeRefresh('immediate')
         scheduleRealtimeReconnect()
       }
@@ -655,7 +701,7 @@ export default function Board({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       unsubscribe()
     }
-  }, [activeBoardId, loadStore, realtimeSubscriptionVersion, store.currentMemberId])
+  }, [activeBoardId, loadStore, realtimeSubscriptionVersion, showOperationError, store.currentMemberId])
 
   const filteredCards = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1730,3 +1776,4 @@ export default function Board({
     </div>
   )
 }
+
