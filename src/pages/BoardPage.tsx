@@ -749,6 +749,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           onOpenNotification={handleOpenNotification}
           onDeleteNotification={handleDeleteNotification}
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          mobileMenuOpen={isMobileSidebarOpen}
         />
       </div>
 

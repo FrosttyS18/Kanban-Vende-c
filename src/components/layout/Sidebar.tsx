@@ -68,11 +68,12 @@ type SettingsView = 'hub' | 'members' | 'archived'
 type SortableBoardButtonProps = {
   board: BoardCatalogItem
   active: boolean
+  fullWidth?: boolean
   onSelectBoard: (boardId: string) => void
   onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, boardId: string) => void
 }
 
-function SortableBoardButton({ board, active, onSelectBoard, onContextMenu }: SortableBoardButtonProps) {
+function SortableBoardButton({ board, active, fullWidth = false, onSelectBoard, onContextMenu }: SortableBoardButtonProps) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: board.id, disabled: !board.hasAccess })
 
   return (
@@ -88,7 +89,7 @@ function SortableBoardButton({ board, active, onSelectBoard, onContextMenu }: So
         backgroundColor: active ? board.color || '#ff0068' : 'transparent',
         opacity: isDragging ? 0.7 : board.hasAccess ? 1 : 0.72
       }}
-      className={`flex h-8.25 w-51.25 items-center justify-center gap-1.5 rounded-[7px] border px-2 text-center text-[14px] font-semibold transition-colors ${
+      className={`flex h-11 items-center justify-center gap-1.5 rounded-[7px] border px-2 text-center text-[14px] font-semibold transition-colors ${fullWidth ? 'w-full' : 'w-51.25'} ${
         active ? 'text-white' : board.hasAccess ? 'text-white hover:bg-white/5' : 'text-[#9b9b9b] hover:bg-white/5'
       }`}
       {...attributes}
@@ -367,8 +368,10 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`relative h-full border-r border-[#3d3d3d] bg-[#1e1e1e] ${
-          mobileOpen ? 'fixed inset-0 z-70 flex w-full flex-col lg:static lg:z-auto lg:w-63.25' : 'hidden w-63.25 lg:flex lg:flex-col'
+        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] ${
+          mobileOpen
+            ? 'fixed inset-0 z-[120] flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
+            : 'hidden h-full w-63.25 lg:flex lg:flex-col'
         }`}
       >
       <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'}`}>
@@ -457,6 +460,7 @@ export default function Sidebar({
                   key={board.id}
                   board={board}
                   active={board.id === activeBoardId}
+                  fullWidth={mobileOpen}
                   onSelectBoard={handleSelectBoard}
                   onContextMenu={(event, boardId) => {
                     const targetBoard = boards.find((item) => item.id === boardId)

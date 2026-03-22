@@ -29,6 +29,7 @@ interface HeaderProps {
   onOpenNotification?: (notification: MemberNotification) => void
   onDeleteNotification?: (notification: MemberNotification) => void
   onOpenMobileSidebar?: () => void
+  mobileMenuOpen?: boolean
 }
 
 function getInitials(email?: string): string {
@@ -73,7 +74,8 @@ export default function Header({
   onMarkNotificationsRead,
   onOpenNotification,
   onDeleteNotification,
-  onOpenMobileSidebar
+  onOpenMobileSidebar,
+  mobileMenuOpen = false
 }: HeaderProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
@@ -170,7 +172,7 @@ export default function Header({
 
   return (
     <header className="w-full border-b border-[#3d3d3d] bg-[#1e1e1e] shadow-[inset_0_-1px_0_0_#3d3d3d]">
-      <div className="relative flex h-16 items-center border-b border-[#3d3d3d] px-4 lg:hidden">
+      <div className={`relative h-16 items-center border-b border-[#3d3d3d] px-4 lg:hidden ${mobileMenuOpen ? 'hidden' : 'flex'}`}>
         {onOpenMobileSidebar && (
           <button
             type="button"
