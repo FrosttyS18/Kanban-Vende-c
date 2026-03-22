@@ -3,7 +3,7 @@ import { Bell, Search, Trash2, UserRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/logo/Logo'
-import { type MemberNotification } from '@/types'
+import { type MemberNotification, type SearchResultItem, type SearchScope } from '@/types'
 
 interface HeaderProps {
   userEmail?: string
@@ -11,6 +11,12 @@ interface HeaderProps {
   isLogoutLoading?: boolean
   searchQuery: string
   onSearchChange: (value: string) => void
+  searchScope: SearchScope
+  onSearchScopeChange: (scope: SearchScope) => void
+  searchResults: SearchResultItem[]
+  searchLoading?: boolean
+  searchError?: string | null
+  onSelectSearchResult?: (result: SearchResultItem) => void
   onCreateBoard: () => void
   canCreateBoard?: boolean
   onShareBoard: () => void
@@ -48,6 +54,12 @@ export default function Header({
   isLogoutLoading = false,
   searchQuery,
   onSearchChange,
+  searchScope,
+  onSearchScopeChange,
+  searchResults,
+  searchLoading = false,
+  searchError = null,
+  onSelectSearchResult,
   onCreateBoard,
   canCreateBoard = true,
   onShareBoard,
@@ -61,13 +73,20 @@ export default function Header({
 }: HeaderProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [highlightedResultIndex, setHighlightedResultIndex] = useState(-1)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const notificationMenuRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
 
   const initials = useMemo(() => getInitials(userEmail), [userEmail])
+  const normalizedQuery = searchQuery.trim()
+  const canSearch = normalizedQuery.length >= 3
+  const shouldShowSearchDropdown = isSearchOpen && canSearch
+  const activeHighlightedResultIndex = searchResults.length === 0 ? -1 : Math.min(highlightedResultIndex, searchResults.length - 1)
 
   useEffect(() => {
-    if (!isUserMenuOpen && !isNotificationsOpen) {
+    if (!isUserMenuOpen && !isNotificationsOpen && !isSearchOpen) {
       return
     }
 
@@ -75,19 +94,24 @@ export default function Header({
       const target = event.target as Node
       const clickedUserMenu = userMenuRef.current?.contains(target)
       const clickedNotificationMenu = notificationMenuRef.current?.contains(target)
+      const clickedSearch = searchRef.current?.contains(target)
 
-      if (clickedUserMenu || clickedNotificationMenu) {
+      if (clickedUserMenu || clickedNotificationMenu || clickedSearch) {
         return
       }
 
       setIsUserMenuOpen(false)
       setIsNotificationsOpen(false)
+      setIsSearchOpen(false)
+      setHighlightedResultIndex(-1)
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsUserMenuOpen(false)
         setIsNotificationsOpen(false)
+        setIsSearchOpen(false)
+        setHighlightedResultIndex(-1)
       }
     }
 
@@ -97,7 +121,13 @@ export default function Header({
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [isNotificationsOpen, isUserMenuOpen])
+  }, [isNotificationsOpen, isSearchOpen, isUserMenuOpen])
+
+  const handleSelectSearchResult = (result: SearchResultItem) => {
+    onSelectSearchResult?.(result)
+    setIsSearchOpen(false)
+    setHighlightedResultIndex(-1)
+  }
 
   return (
     <header className="w-full border-b border-[#3d3d3d] bg-[#1e1e1e] shadow-[inset_0_-1px_0_0_#3d3d3d]">
@@ -113,15 +143,122 @@ export default function Header({
               <span className="truncate text-[12px] font-semibold text-[#d1d1d1]">{activeBoardTitle}</span>
             </div>
           )}
-          <div className="relative">
+          <div ref={searchRef} className="relative">
             <Input
               value={searchQuery}
-              onChange={(event) => onSearchChange(event.target.value)}
+              onChange={(event) => {
+                onSearchChange(event.target.value)
+                setIsSearchOpen(true)
+                setHighlightedResultIndex(-1)
+              }}
+              onFocus={() => {
+                setIsSearchOpen(true)
+                setIsNotificationsOpen(false)
+                setIsUserMenuOpen(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setIsSearchOpen(false)
+                  setHighlightedResultIndex(-1)
+                  return
+                }
+
+                if (!canSearch) {
+                  return
+                }
+
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setIsSearchOpen(true)
+                  setHighlightedResultIndex((prev) => {
+                    if (searchResults.length === 0) {
+                      return -1
+                    }
+                    const next = prev + 1
+                    if (next >= searchResults.length) {
+                      return 0
+                    }
+                    return next
+                  })
+                  return
+                }
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setIsSearchOpen(true)
+                  setHighlightedResultIndex((prev) => {
+                    if (searchResults.length === 0) {
+                      return -1
+                    }
+                    if (prev <= 0) {
+                      return Math.max(0, searchResults.length - 1)
+                    }
+                    return prev - 1
+                  })
+                  return
+                }
+
+                if (event.key === 'Enter' && activeHighlightedResultIndex >= 0 && activeHighlightedResultIndex < searchResults.length) {
+                  event.preventDefault()
+                  handleSelectSearchResult(searchResults[activeHighlightedResultIndex])
+                }
+              }}
               className="h-9 w-[min(760px,46vw)] min-w-55 rounded-[7px] border-none bg-black pr-10 text-[14px] text-[#d1d1d1] placeholder:text-[#d1d1d1] focus-visible:ring-2 focus-visible:ring-primary lg:w-[min(760px,50vw)]"
               placeholder="Pesquisar"
               aria-label="Pesquisar"
             />
             <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
+
+            {shouldShowSearchDropdown && (
+              <div className="absolute left-0 right-0 top-11 z-50 rounded-[9px] border border-white/10 bg-[#1f1f21] p-2 shadow-2xl">
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSearchScopeChange('board')}
+                    className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
+                      searchScope === 'board' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
+                    }`}
+                  >
+                    Neste board
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSearchScopeChange('all')}
+                    className={`rounded-[7px] px-2.5 py-1 text-[11px] font-semibold ${
+                      searchScope === 'all' ? 'bg-primary text-white' : 'bg-[#2c2c2f] text-[#d1d1d1] hover:bg-[#3a3a3f]'
+                    }`}
+                  >
+                    Todos os boards
+                  </button>
+                </div>
+
+                {searchLoading ? (
+                  <p className="px-2 py-2 text-xs text-[#a9a9a9]">Buscando...</p>
+                ) : searchError ? (
+                  <p className="px-2 py-2 text-xs text-[#ffb4ae]">{searchError}</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-[#a9a9a9]">Nenhum card encontrado.</p>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto">
+                    {searchResults.map((result, index) => (
+                      <button
+                        key={`${result.cardId}-${result.rank}-${index}`}
+                        type="button"
+                        onClick={() => handleSelectSearchResult(result)}
+                        className={`w-full rounded-[7px] px-2 py-2 text-left ${
+                          activeHighlightedResultIndex === index ? 'bg-[#ff0068]/20' : 'hover:bg-white/7'
+                        }`}
+                      >
+                        <p className="truncate text-[13px] font-semibold text-white">{result.cardTitle}</p>
+                        <p className="mt-0.5 truncate text-[11px] text-[#a9a9a9]">
+                          {result.boardTitle} · {result.listTitle}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -153,9 +290,7 @@ export default function Header({
                 setIsNotificationsOpen((prev) => {
                   const next = !prev
                   setIsUserMenuOpen(false)
-                  if (next) {
-                    onMarkNotificationsRead?.()
-                  }
+                  setIsSearchOpen(false)
                   return next
                 })
               }
@@ -172,13 +307,27 @@ export default function Header({
 
             {isNotificationsOpen && (
               <div className="absolute right-0 top-10 z-50 w-76 rounded-lg border border-white/10 bg-[#1e1e1e] p-2 shadow-xl">
-                <p className="px-1 py-1 text-xs font-semibold uppercase tracking-wide text-[#a9a9a9]">Notificações</p>
+                <div className="flex items-center justify-between px-1 py-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#a9a9a9]">Notificações</p>
+                  {unreadNotificationsCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkNotificationsRead?.()}
+                      className="text-[10px] font-semibold text-primary hover:text-primary/80"
+                    >
+                      Marcar todas
+                    </button>
+                  )}
+                </div>
                 <div className="mt-1 max-h-66 overflow-y-auto">
                   {notifications.length === 0 ? (
                     <p className="px-2 py-2 text-xs text-[#9a9a9a]">Sem notificações novas.</p>
                   ) : (
                     notifications.map((notification) => (
-                      <div key={notification.id} className="flex items-start gap-1 rounded-[6px] px-1 py-1 hover:bg-white/5">
+                      <div
+                        key={notification.id}
+                        className={`flex items-start gap-1 rounded-[6px] px-1 py-1 ${notification.isRead ? 'hover:bg-white/5' : 'bg-[#ff0068]/12 hover:bg-[#ff0068]/18'}`}
+                      >
                         <button
                           type="button"
                           onClick={() => {
@@ -187,8 +336,11 @@ export default function Header({
                           }}
                           className="flex-1 rounded-[6px] px-1 py-1 text-left"
                         >
-                          <p className="text-xs font-semibold text-white">{notification.title}</p>
-                          <p className="mt-0.5 line-clamp-2 text-xs text-[#d1d1d1]">{notification.message}</p>
+                          <div className="flex items-center gap-1.5">
+                            {!notification.isRead && <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />}
+                            <p className={`text-xs font-semibold ${notification.isRead ? 'text-white' : 'text-[#ffe3f0]'}`}>{notification.title}</p>
+                          </div>
+                          <p className={`mt-0.5 line-clamp-2 text-xs ${notification.isRead ? 'text-[#d1d1d1]' : 'text-[#ffd4e9]'}`}>{notification.message}</p>
                         </button>
                         <button
                           type="button"
@@ -211,6 +363,7 @@ export default function Header({
               type="button"
               onClick={() => {
                 setIsNotificationsOpen(false)
+                setIsSearchOpen(false)
                 setIsUserMenuOpen((prev) => !prev)
               }}
               className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-white"

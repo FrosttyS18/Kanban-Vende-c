@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Plus, X } from 'lucide-react'
 import {
   DndContext,
@@ -20,6 +21,7 @@ import Card from '@/components/board/Card'
 import ShareBoardModal from '@/components/board/ShareBoardModal'
 import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
 import { isAllowedCardActivityEvent } from '@/constants/activityEvents'
+import { queryKeys } from '@/lib/queryKeys'
 import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type GlobalUserRole, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
 import {
@@ -203,6 +205,7 @@ export default function Board({
   onCardClose,
   onBoardMetaChange
 }: BoardProps) {
+  const queryClient = useQueryClient()
   const [store, setStore] = useState<BoardStore>(EMPTY_STORE)
   const [isLoadingStore, setIsLoadingStore] = useState(true)
   const [storeError, setStoreError] = useState<string | null>(null)
@@ -230,6 +233,7 @@ export default function Board({
   const storeRef = useRef<BoardStore>(EMPTY_STORE)
   const dragSnapshotRef = useRef<{ cards: CardData[]; columns: ColumnData[] } | null>(null)
   const loadStoreRequestIdRef = useRef(0)
+  const manualStoreLoadingRef = useRef(false)
   const channelIssueStreakRef = useRef(0)
   const stampCheckFailureStreakRef = useRef(0)
 
@@ -289,6 +293,7 @@ export default function Board({
       const requestId = ++loadStoreRequestIdRef.current
       const shouldShowLoader = options?.silent !== true
       if (shouldShowLoader) {
+        manualStoreLoadingRef.current = true
         setIsLoadingStore(true)
       }
       setStoreError(null)
@@ -298,9 +303,15 @@ export default function Board({
 
         for (let attempt = 1; attempt <= TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS; attempt += 1) {
           try {
-            nextStore = await loadBoardStoreFromRemote(preferredBoardId ?? selectedBoardId, {
-              forceRefresh: options?.forceRefresh || attempt > 1,
-              bypassInFlight: options?.bypassInFlight || attempt > 1
+            const targetBoardId = preferredBoardId ?? selectedBoardId
+            nextStore = await queryClient.fetchQuery({
+              queryKey: queryKeys.boardStore(targetBoardId),
+              queryFn: () =>
+                loadBoardStoreFromRemote(targetBoardId, {
+                  forceRefresh: options?.forceRefresh || attempt > 1,
+                  bypassInFlight: options?.bypassInFlight || attempt > 1
+                }),
+              staleTime: 0
             })
             break
           } catch (error) {
@@ -334,16 +345,50 @@ export default function Board({
       } finally {
         if (shouldShowLoader && requestId === loadStoreRequestIdRef.current) {
           setIsLoadingStore(false)
+          manualStoreLoadingRef.current = false
         }
       }
     },
-    [applyStore, selectedBoardId]
+    [applyStore, queryClient, selectedBoardId]
   )
 
   useEffect(() => {
     clearLegacyBoardStorage()
-    void loadStore(selectedBoardId)
-  }, [loadStore, selectedBoardId])
+  }, [])
+
+  const boardStoreQuery = useQuery({
+    queryKey: queryKeys.boardStore(selectedBoardId),
+    queryFn: () => loadBoardStoreFromRemote(selectedBoardId),
+    retry: (failureCount, error) => isTransientBoardLoadError(error) && failureCount < TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS - 1,
+    retryDelay: (attempt) => {
+      const jitter = Math.floor(Math.random() * 220)
+      return TRANSIENT_BOARD_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1) + jitter
+    },
+    refetchOnWindowFocus: false
+  })
+
+  useEffect(() => {
+    if (boardStoreQuery.data) {
+      applyStore(boardStoreQuery.data)
+      setStoreError(null)
+    }
+  }, [applyStore, boardStoreQuery.data])
+
+  useEffect(() => {
+    if (!boardStoreQuery.error || manualStoreLoadingRef.current) {
+      return
+    }
+    const message = boardStoreQuery.error instanceof Error ? boardStoreQuery.error.message : 'Nao foi possivel carregar os boards.'
+    setStoreError(message)
+  }, [boardStoreQuery.error])
+
+  useEffect(() => {
+    if (manualStoreLoadingRef.current) {
+      return
+    }
+    const isQueryLoading = boardStoreQuery.isLoading && !boardStoreQuery.data
+    setIsLoadingStore(isQueryLoading)
+  }, [boardStoreQuery.data, boardStoreQuery.isLoading])
 
   const activeBoardId = useMemo(() => {
     if (selectedBoardId && store.boards.some((board) => board.id === selectedBoardId)) {
@@ -371,6 +416,20 @@ export default function Board({
     [activeBoardId, loadStore, showOperationError]
   )
 
+  const invalidateBoardQueries = useCallback(
+    (boardIdOverride?: string, options?: { includeArchived?: boolean }) => {
+      const boardId = (boardIdOverride ?? activeBoardId).trim()
+      if (boardId) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.boardStore(boardId) })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+      if (options?.includeArchived) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.archivedCards })
+      }
+    },
+    [activeBoardId, queryClient]
+  )
+
   const rollbackBoardDragSnapshot = useCallback(
     (dragSnapshot: { cards: CardData[]; columns: ColumnData[] } | null) => {
       if (!dragSnapshot) {
@@ -391,6 +450,118 @@ export default function Board({
     [activeBoardId, applyStore]
   )
 
+  const setLastBoardIdMutation = useMutation({
+    mutationFn: (boardId: string | null) => setLastBoardIdRemote(boardId),
+    onError: () => undefined
+  })
+
+  const recordActivityMutation = useMutation({
+    mutationFn: (input: RecordCardActivityInput) => recordCardActivityRemote(input),
+    onError: (error, input) => {
+      handleRemoteError('record_activity', error, activeBoardId, { resourceId: input.cardId })
+    }
+  })
+
+  const createMemberNotificationsMutation = useMutation({
+    mutationFn: (variables: { cardId: string; memberIds: string[] }) =>
+      createMemberAssignmentNotificationsRemote(variables.cardId, variables.memberIds)
+  })
+
+  const upsertCardMutation = useMutation({
+    mutationFn: (variables: { boardId: string; card: CardData }) => upsertCardRemote(variables.boardId, variables.card)
+  })
+
+  const updateCardFieldsMutation = useMutation({
+    mutationFn: (variables: {
+      cardId: string
+      payload: Partial<Pick<CardData, 'title' | 'description' | 'dueDate' | 'isCompleted' | 'listId' | 'updatedAt'>>
+    }) => updateCardFieldsRemote(variables.cardId, variables.payload)
+  })
+
+  const createCardMutation = useMutation({
+    mutationFn: (variables: { boardId: string; card: CardData }) => createCardRemote(variables.boardId, variables.card)
+  })
+
+  const syncCardsOrderingMutation = useMutation({
+    mutationFn: (variables: { boardId: string; columns: ColumnData[]; cards: CardData[] }) =>
+      syncCardsOrderingRemote(variables.boardId, variables.columns, variables.cards)
+  })
+
+  const deleteCardMutation = useMutation({
+    mutationFn: (cardId: string) => deleteCardRemote(cardId)
+  })
+
+  const archiveCardMutation = useMutation({
+    mutationFn: (cardId: string) => archiveCardRemote(cardId)
+  })
+
+  const createListMutation = useMutation({
+    mutationFn: (column: ColumnData) => createListRemote(column)
+  })
+
+  const updateListMutation = useMutation({
+    mutationFn: (variables: { columnId: string; payload: { title?: string; position?: number } }) =>
+      updateListRemote(variables.columnId, variables.payload)
+  })
+
+  const deleteListMutation = useMutation({
+    mutationFn: (columnId: string) => deleteListRemote(columnId)
+  })
+
+  const reorderListsMutation = useMutation({
+    mutationFn: (columns: ColumnData[]) => reorderListsRemote(columns)
+  })
+
+  const replaceBoardLabelsMutation = useMutation({
+    mutationFn: (variables: { boardId: string; labels: Label[] }) => replaceBoardLabelsRemote(variables.boardId, variables.labels)
+  })
+
+  const replaceBoardShareSettingsMutation = useMutation({
+    mutationFn: (variables: { boardId: string; ownerMemberId: string; settings: BoardShareSettings }) =>
+      replaceBoardShareSettingsRemote(variables.boardId, variables.ownerMemberId, variables.settings)
+  })
+
+  const inviteMemberByEmailMutation = useMutation({
+    mutationFn: (variables: { boardId: string; email: string; permission: 'view' | 'edit' }) =>
+      inviteMemberByEmailRemote(variables.boardId, variables.email, variables.permission)
+  })
+
+  const createBoardMutation = useMutation({
+    mutationFn: (variables: { board: BoardData; shareSettings: BoardShareSettings }) =>
+      createBoardRemote(variables.board, variables.shareSettings)
+  })
+
+  const runMutation = useCallback(
+    async <TData, TError, TVariables>(
+      mutation: UseMutationResult<TData, TError, TVariables, unknown>,
+      variables: TVariables,
+      options: {
+        action: string
+        boardId?: string
+        resourceId?: string
+        rollback?: () => void
+        includeArchived?: boolean
+        onSuccess?: (data: TData) => void
+      }
+    ): Promise<{ ok: boolean; data?: TData }> => {
+      try {
+        const data = await mutation.mutateAsync(variables)
+        if (options.boardId) {
+          invalidateBoardQueries(options.boardId, { includeArchived: options.includeArchived })
+        }
+        options.onSuccess?.(data)
+        return { ok: true, data }
+      } catch (error) {
+        handleRemoteError(options.action, error, options.boardId, {
+          resourceId: options.resourceId,
+          rollback: options.rollback
+        })
+        return { ok: false }
+      }
+    },
+    [handleRemoteError, invalidateBoardQueries]
+  )
+
   const canCreateBoard = store.currentUserRole === 'admin'
   const isCreateBoardOpen = createBoardSignal > dismissedCreateSignal && canCreateBoard
   const isShareBoardOpen = shareBoardSignal > dismissedShareSignal
@@ -400,8 +571,8 @@ export default function Board({
     if (isLoadingStore) {
       return
     }
-    void setLastBoardIdRemote(activeBoardId || null).catch(() => undefined)
-  }, [activeBoardId, isLoadingStore])
+    setLastBoardIdMutation.mutate(activeBoardId || null)
+  }, [activeBoardId, isLoadingStore, setLastBoardIdMutation])
 
   const profileNotifications = useMemo(
     () =>
@@ -715,8 +886,11 @@ export default function Board({
       const inDescription = card.description.toLowerCase().includes(query)
       const inLinks = card.links.some((link) => link.title.toLowerCase().includes(query) || link.url.toLowerCase().includes(query))
       const inLabels = card.labels.some((label) => label.text.toLowerCase().includes(query))
+      const inChecklist = card.checklists.some((checklist) =>
+        checklist.items.some((item) => item.content.toLowerCase().includes(query))
+      )
 
-      return inTitle || inDescription || inLinks || inLabels
+      return inTitle || inDescription || inLinks || inLabels || inChecklist
     })
   }, [currentCards, searchQuery])
 
@@ -759,17 +933,15 @@ export default function Board({
         return
       }
 
-      void recordCardActivityRemote({
+      recordActivityMutation.mutate({
         cardId,
         eventType,
         message: normalizedMessage,
         activityType: options?.activityType,
         dedupeWindowMinutes: options?.dedupeWindowMinutes
-      }).catch((error) => {
-        handleRemoteError('record_activity', error, activeBoardId)
       })
     },
-    [activeBoardId, handleRemoteError]
+    [recordActivityMutation]
   )
 
   const handleRecordCardActivity = useCallback(
@@ -830,27 +1002,34 @@ export default function Board({
         'checklists' in updates
 
       if (hasRelationalUpdates) {
-        void upsertCardRemote(activeBoardId, cardToPersist)
-          .then(() => {
-            if (addedMemberIdsForNotification.length === 0) {
-              return
-            }
+        void (async () => {
+          const upsertResult = await runMutation(upsertCardMutation, { boardId: activeBoardId, card: cardToPersist }, {
+            action: 'upsert_card',
+            boardId: activeBoardId,
+            resourceId: cardToPersist.id
+          })
 
-            void createMemberAssignmentNotificationsRemote(cardToPersist.id, addedMemberIdsForNotification).catch((error) => {
-              console.error('[notification_create_error]', {
-                action: 'create_member_assignment_notifications',
-                boardId: activeBoardId,
-                cardId: cardToPersist.id,
-                memberIds: addedMemberIdsForNotification,
-                message: error instanceof Error ? error.message : 'Erro desconhecido',
-                error
-              })
-              showOperationError('Membros salvos, mas nao foi possivel enviar notificacao.')
+          if (!upsertResult.ok || addedMemberIdsForNotification.length === 0) {
+            return
+          }
+
+          try {
+            await createMemberNotificationsMutation.mutateAsync({
+              cardId: cardToPersist.id,
+              memberIds: addedMemberIdsForNotification
             })
-          })
-          .catch((error) => {
-            handleRemoteError('upsert_card', error, activeBoardId)
-          })
+          } catch (error) {
+            console.error('[notification_create_error]', {
+              action: 'create_member_assignment_notifications',
+              boardId: activeBoardId,
+              cardId: cardToPersist.id,
+              memberIds: addedMemberIdsForNotification,
+              message: error instanceof Error ? error.message : 'Erro desconhecido',
+              error
+            })
+            showOperationError('Membros salvos, mas nao foi possivel enviar notificacao.')
+          }
+        })()
       } else {
         const scalarUpdates: Partial<Pick<CardData, 'title' | 'description' | 'dueDate' | 'isCompleted' | 'listId' | 'updatedAt'>> = {
           updatedAt: cardToPersist.updatedAt
@@ -871,9 +1050,14 @@ export default function Board({
           scalarUpdates.listId = cardToPersist.listId
         }
 
-        void updateCardFieldsRemote(cardToPersist.id, scalarUpdates).catch((error) => {
-          handleRemoteError('update_card_fields', error, activeBoardId)
-        })
+        void runMutation(updateCardFieldsMutation, {
+            cardId: cardToPersist.id,
+            payload: scalarUpdates
+          }, {
+            action: 'update_card_fields',
+            boardId: activeBoardId,
+            resourceId: cardToPersist.id
+          })
       }
     }
   }
@@ -916,18 +1100,27 @@ export default function Board({
       cards: nextCardsPayload
     })
 
-    void createCardRemote(activeBoardId, createdCard)
-      .then(() => {
+    void runMutation(createCardMutation, {
+        boardId: activeBoardId,
+        card: createdCard
+      }, {
+        action: 'create_card',
+        boardId: activeBoardId,
+        resourceId: createdCard.id,
+        onSuccess: () => {
         recordActivity(createdCard.id, 'card_created', ACTIVITY_MESSAGES.cardCreatedInList(createdListTitle))
-      })
-      .catch((error) => {
-        handleRemoteError('create_card', error, activeBoardId)
+        }
       })
 
     const boardCardsToSync = nextCardsPayload.filter((card) => boardListIds.has(card.listId))
-    void syncCardsOrderingRemote(activeBoardId, boardColumns, boardCardsToSync).catch((error) => {
-      handleRemoteError('sync_cards_ordering_after_create', error, activeBoardId)
-    })
+    void runMutation(syncCardsOrderingMutation, {
+        boardId: activeBoardId,
+        columns: boardColumns,
+        cards: boardCardsToSync
+      }, {
+        action: 'sync_cards_ordering_after_create',
+        boardId: activeBoardId
+      })
   }
 
   const deleteCard = (cardId: string) => {
@@ -936,8 +1129,11 @@ export default function Board({
       ...snapshot,
       cards: snapshot.cards.filter((card) => card.id !== cardId)
     })
-    void deleteCardRemote(cardId).catch((error) => {
-      handleRemoteError('delete_card', error, activeBoardId)
+    void runMutation(deleteCardMutation, cardId, {
+      action: 'delete_card',
+      boardId: activeBoardId,
+      resourceId: cardId,
+      includeArchived: true
     })
   }
 
@@ -969,8 +1165,11 @@ export default function Board({
       ]
     })
 
-    void archiveCardRemote(cardId).catch((error) => {
-      handleRemoteError('archive_card', error, activeBoardId)
+    void runMutation(archiveCardMutation, cardId, {
+      action: 'archive_card',
+      boardId: activeBoardId,
+      resourceId: cardId,
+      includeArchived: true
     })
   }
 
@@ -994,8 +1193,10 @@ export default function Board({
       columns: [...snapshot.columns, createdList]
     })
 
-    void createListRemote(createdList).catch((error) => {
-      handleRemoteError('create_list', error, activeBoardId)
+    void runMutation(createListMutation, createdList, {
+      action: 'create_list',
+      boardId: activeBoardId,
+      resourceId: createdList.id
     })
 
     setNewListTitle('')
@@ -1013,8 +1214,10 @@ export default function Board({
       ...snapshot,
       columns: snapshot.columns.map((column) => (column.id === columnId ? { ...column, title: normalizedTitle } : column))
     })
-    void updateListRemote(columnId, { title: normalizedTitle }).catch((error) => {
-      handleRemoteError('rename_list', error, activeBoardId)
+    void runMutation(updateListMutation, { columnId, payload: { title: normalizedTitle } }, {
+      action: 'rename_list',
+      boardId: activeBoardId,
+      resourceId: columnId
     })
   }
 
@@ -1039,8 +1242,10 @@ export default function Board({
       columns: normalizedColumns,
       cards: snapshot.cards.filter((card) => card.listId !== columnId)
     })
-    void deleteListRemote(columnId).catch((error) => {
-      handleRemoteError('delete_list', error, activeBoardId)
+    void runMutation(deleteListMutation, columnId, {
+      action: 'delete_list',
+      boardId: activeBoardId,
+      resourceId: columnId
     })
   }
 
@@ -1053,8 +1258,9 @@ export default function Board({
         [activeBoardId]: labels
       }
     })
-    void replaceBoardLabelsRemote(activeBoardId, labels).catch((error) => {
-      handleRemoteError('replace_labels', error, activeBoardId)
+    void runMutation(replaceBoardLabelsMutation, { boardId: activeBoardId, labels }, {
+      action: 'replace_labels',
+      boardId: activeBoardId
     })
   }
 
@@ -1103,14 +1309,21 @@ export default function Board({
       cards: snapshot.cards.map((card) => cardsToPersistMap.get(card.id) ?? card)
     })
 
-    void replaceBoardShareSettingsRemote(activeBoardId, boardOwnerId, normalizedSettings).catch((error) => {
-      handleRemoteError('replace_share_settings', error, activeBoardId)
-    })
+    void runMutation(replaceBoardShareSettingsMutation, {
+        boardId: activeBoardId,
+        ownerMemberId: boardOwnerId,
+        settings: normalizedSettings
+      }, {
+        action: 'replace_share_settings',
+        boardId: activeBoardId
+      })
 
     cardsToPersist.forEach((card) => {
-      void upsertCardRemote(activeBoardId, card).catch((error) => {
-        handleRemoteError('upsert_card_after_share', error, activeBoardId)
-      })
+      void runMutation(upsertCardMutation, { boardId: activeBoardId, card }, {
+        action: 'upsert_card_after_share',
+        boardId: activeBoardId,
+        resourceId: card.id
+        })
     })
   }
 
@@ -1119,12 +1332,33 @@ export default function Board({
       return { ok: false, message: 'Board nao encontrado.' }
     }
 
-    const result = await inviteMemberByEmailRemote(activeBoardId, email, permission)
+    const mutationResult = await runMutation(
+      inviteMemberByEmailMutation,
+      {
+      boardId: activeBoardId,
+      email,
+      permission
+      },
+      {
+        action: 'invite_member_by_email',
+        boardId: activeBoardId
+      }
+    )
+    if (!mutationResult.ok) {
+      return { ok: false, message: 'Nao foi possivel enviar o convite.' }
+    }
+    const result = mutationResult.data
+    if (!result) {
+      return { ok: false, message: 'Nao foi possivel enviar o convite.' }
+    }
     if (!result.ok) {
       return result
     }
 
-    await loadStore(activeBoardId, { forceRefresh: true, silent: true })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.boardStore(activeBoardId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+    ])
     return result
   }
 
@@ -1286,24 +1520,31 @@ export default function Board({
         })
 
         const targetListTitle = boardColumns.find((column) => column.id === cardToPersist.listId)?.title ?? 'Lista'
-        void updateCardFieldsRemote(cardToPersist.id, {
-          listId: cardToPersist.listId,
-          updatedAt: cardToPersist.updatedAt
-        }).catch((error) => {
-          handleRemoteError('move_card_update_fields', error, activeBoardId, {
+        void runMutation(updateCardFieldsMutation, {
+            cardId: cardToPersist.id,
+            payload: {
+              listId: cardToPersist.listId,
+              updatedAt: cardToPersist.updatedAt
+            }
+          }, {
+            action: 'move_card_update_fields',
+            boardId: activeBoardId,
             resourceId: cardToPersist.id,
             rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
           })
-        })
         recordActivity(cardToPersist.id, 'card_moved', ACTIVITY_MESSAGES.cardMovedToList(targetListTitle), { dedupeWindowMinutes: 10 })
       }
 
       const cardsToSyncPayload = boardCards.map((card) => (card.id === cardToPersist.id ? cardToPersist : card))
-      void syncCardsOrderingRemote(activeBoardId, boardColumns, cardsToSyncPayload).catch((error) => {
-        handleRemoteError('sync_cards_ordering', error, activeBoardId, {
+      void runMutation(syncCardsOrderingMutation, {
+          boardId: activeBoardId,
+          columns: boardColumns,
+          cards: cardsToSyncPayload
+        }, {
+          action: 'sync_cards_ordering',
+          boardId: activeBoardId,
           rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
         })
-      })
       return
     }
 
@@ -1347,10 +1588,10 @@ export default function Board({
       columns: [...otherColumns, ...movedColumns]
     })
 
-    void reorderListsRemote(movedColumns).catch((error) => {
-      handleRemoteError('reorder_lists', error, activeBoardId, {
-        rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
-      })
+    void runMutation(reorderListsMutation, movedColumns, {
+      action: 'reorder_lists',
+      boardId: activeBoardId,
+      rollback: () => rollbackBoardDragSnapshot(dragSnapshot)
     })
   }
 
@@ -1395,29 +1636,30 @@ export default function Board({
           boardId,
           linkToken,
           allowLinkAccess: true,
-          members: [{ memberId: snapshot.currentMemberId, permission: 'edit' }]
+          members: [{ memberId: snapshot.currentMemberId, permission: 'edit' as const }]
         }
       },
       currentBoardId: boardId
     })
-    void createBoardRemote(
-      {
-        id: boardId,
-        title,
-        color: newBoardColor,
-        ownerMemberId: snapshot.currentMemberId,
-        createdAt: now,
-        updatedAt: now
-      },
-      {
-        boardId,
-        linkToken,
-        allowLinkAccess: true,
-        members: [{ memberId: snapshot.currentMemberId, permission: 'edit' }]
-      }
-    ).catch((error) => {
-      handleRemoteError('create_board', error, boardId)
-    })
+    void runMutation(createBoardMutation, {
+        board: {
+          id: boardId,
+          title,
+          color: newBoardColor,
+          ownerMemberId: snapshot.currentMemberId,
+          createdAt: now,
+          updatedAt: now
+        },
+        shareSettings: {
+          boardId,
+          linkToken,
+          allowLinkAccess: true,
+          members: [{ memberId: snapshot.currentMemberId, permission: 'edit' as const }]
+        }
+      }, {
+        action: 'create_board',
+        boardId
+      })
 
     setNewBoardTitle('')
     setNewBoardColor('#ff0068')

@@ -14,12 +14,24 @@ export interface Member {
 
 export type GlobalUserRole = 'admin' | 'member'
 
+export type SearchScope = 'board' | 'all'
+
 export interface BoardCatalogItem {
   id: string
   title: string
   color: string
   updatedAt: string
   hasAccess: boolean
+}
+
+export interface SearchResultItem {
+  cardId: string
+  cardTitle: string
+  boardId: string
+  boardTitle: string
+  listId: string
+  listTitle: string
+  rank: number
 }
 
 export interface GlobalRoleUser {

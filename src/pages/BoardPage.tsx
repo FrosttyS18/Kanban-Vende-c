@@ -1,15 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 import Board from '@/components/board/Board'
-import { type BoardCatalogItem, type BoardData, type GlobalRoleUser, type GlobalUserRole, type MemberNotification } from '@/types'
-import { deleteBoardRemote, deleteNotificationByIdRemote, joinBoardViaTokenRemote, listBoardCatalogRemote, listGlobalAdminsAndMembersRemote, markNotificationReadByIdRemote, markNotificationsReadRemote, reorderBoardsRemote, setGlobalRoleByEmailRemote, updateBoardRemote } from '@/services/boardApi'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { queryKeys } from '@/lib/queryKeys'
+import {
+  deleteBoardRemote,
+  deleteNotificationByIdRemote,
+  joinBoardViaTokenRemote,
+  listBoardCatalogRemote,
+  listGlobalAdminsAndMembersRemote,
+  markNotificationReadByIdRemote,
+  markNotificationsReadRemote,
+  reorderBoardsRemote,
+  searchCardsFtsRemote,
+  setGlobalRoleByEmailRemote,
+  updateBoardRemote
+} from '@/services/boardApi'
+import { type BoardData, type GlobalUserRole, type MemberNotification, type SearchScope } from '@/types'
 
 interface BoardPageProps {
   userEmail?: string
   onLogout?: () => void
   isLogoutLoading?: boolean
 }
+
 type UrlState =
   | { kind: 'root' }
   | { kind: 'shared'; token: string }
@@ -76,18 +92,22 @@ function updateHistory(url: string, replace: boolean): void {
   if (typeof window === 'undefined') {
     return
   }
+
   const current = `${window.location.pathname}${window.location.search}`
   if (current === url) {
     return
   }
+
   if (replace) {
     window.history.replaceState({}, document.title, url)
     return
   }
+
   window.history.pushState({}, document.title, url)
 }
 
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
+  const queryClient = useQueryClient()
   const [urlState, setUrlState] = useState<UrlState>(() => parseUrlState())
   const [shareJoinError, setShareJoinError] = useState<string | null>(null)
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(() => {
@@ -101,21 +121,19 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     return null
   })
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchScope, setSearchScope] = useState<SearchScope>('board')
   const [createBoardSignal, setCreateBoardSignal] = useState(0)
   const [shareBoardSignal, setShareBoardSignal] = useState(0)
-  const [boards, setBoards] = useState<BoardData[]>([])
-  const [boardCatalog, setBoardCatalog] = useState<BoardCatalogItem[]>([])
+  const [boardMetaBoards, setBoardMetaBoards] = useState<BoardData[]>([])
   const [fallbackBoardId, setFallbackBoardId] = useState(() => (urlState.kind === 'board' ? urlState.boardId : ''))
   const [boardReloadKey, setBoardReloadKey] = useState(0)
   const [profileNotifications, setProfileNotifications] = useState<MemberNotification[]>([])
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [currentUserRole, setCurrentUserRole] = useState<GlobalUserRole>('member')
-  const [globalRoleUsers, setGlobalRoleUsers] = useState<GlobalRoleUser[]>([])
-  const [isManagingGlobalRoles, setIsManagingGlobalRoles] = useState(false)
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
-  const lastOpenCardKeyRef = useRef<string>('')
+  const lastOpenCardKeyRef = useRef('')
 
   const selectedBoardId = useMemo(() => {
     if (urlState.kind === 'board') {
@@ -124,32 +142,74 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     return fallbackBoardId
   }, [fallbackBoardId, urlState])
 
+  const boardCatalogQuery = useQuery({
+    queryKey: queryKeys.boardCatalog,
+    queryFn: listBoardCatalogRemote,
+    refetchOnWindowFocus: true
+  })
+
+  const boardCatalog = useMemo(() => boardCatalogQuery.data ?? [], [boardCatalogQuery.data])
   const selectedBoardCatalog = useMemo(
     () => boardCatalog.find((board) => board.id === selectedBoardId) ?? null,
     [boardCatalog, selectedBoardId]
   )
 
-  const loadBoardCatalog = useCallback(async () => {
-    try {
-      const catalog = await listBoardCatalogRemote()
-      setBoardCatalog(catalog)
-    } catch {
-      setBoardCatalog([])
-    }
-  }, [])
+  const globalRoleUsersQuery = useQuery({
+    queryKey: queryKeys.globalRoleUsers,
+    queryFn: listGlobalAdminsAndMembersRemote
+  })
 
-  const loadGlobalRoleUsers = useCallback(async () => {
-    try {
-      const users = await listGlobalAdminsAndMembersRemote()
-      setGlobalRoleUsers(users)
-    } catch {
-      setGlobalRoleUsers([])
+  const globalRoleMutation = useMutation({
+    mutationFn: ({ email, role }: { email: string; role: GlobalUserRole }) => setGlobalRoleByEmailRemote(email, role),
+    onSuccess: async (result) => {
+      if (!result.ok) {
+        return
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.globalRoleUsers }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+      ])
+      setBoardReloadKey((previous) => previous + 1)
     }
-  }, [])
+  })
+
+  const normalizedSearchQuery = searchQuery.trim()
+  const debouncedSearchQuery = useDebouncedValue(normalizedSearchQuery, 280)
+  const searchEnabled = debouncedSearchQuery.length >= 3 && (searchScope === 'all' || Boolean(selectedBoardId))
+
+  const searchQueryState = useQuery({
+    queryKey: queryKeys.searchCards({
+      scope: searchScope,
+      boardId: searchScope === 'board' ? selectedBoardId : undefined,
+      query: debouncedSearchQuery
+    }),
+    queryFn: () =>
+      searchCardsFtsRemote({
+        query: debouncedSearchQuery,
+        scope: searchScope,
+        boardId: searchScope === 'board' ? selectedBoardId : undefined,
+        limit: 10
+      }),
+    enabled: searchEnabled
+  })
 
   const triggerCreateBoard = () => {
-    setCreateBoardSignal((prev) => prev + 1)
+    setCreateBoardSignal((previous) => previous + 1)
   }
+
+  const navigateToBoard = useCallback(
+    (boardId: string, options?: { cardId?: string | null; token?: string | null; replace?: boolean }) => {
+      const nextState: UrlState = {
+        kind: 'board',
+        boardId,
+        cardId: options?.cardId ?? null,
+        token: options?.token?.trim() || null
+      }
+      setUrlState(nextState)
+      updateHistory(buildBoardUrl(boardId, { cardId: nextState.cardId, token: nextState.token }), options?.replace ?? false)
+    },
+    []
+  )
 
   const handleLogout = useCallback(() => {
     setUrlState({ kind: 'root' })
@@ -157,28 +217,71 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     setPendingShareToken(null)
     setShareJoinError(null)
     setOpenCardRequest(null)
-    setCloseCardModalSignal((prev) => prev + 1)
+    setCloseCardModalSignal((previous) => previous + 1)
     updateHistory('/', true)
     onLogout?.()
   }, [onLogout])
 
-  const navigateToBoard = useCallback((boardId: string, options?: { cardId?: string | null; token?: string | null; replace?: boolean }) => {
-    const nextState: UrlState = {
-      kind: 'board',
-      boardId,
-      cardId: options?.cardId ?? null,
-      token: options?.token?.trim() || null
+  const renameBoardMutation = useMutation({
+    mutationFn: ({ boardId, title, color }: { boardId: string; title: string; color: string }) =>
+      updateBoardRemote(boardId, { title, color }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
     }
-    setUrlState(nextState)
-    updateHistory(buildBoardUrl(boardId, { cardId: nextState.cardId, token: nextState.token }), options?.replace ?? false)
-  }, [])
+  })
+
+  const deleteBoardMutation = useMutation({
+    mutationFn: (boardId: string) => deleteBoardRemote(boardId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+      setBoardReloadKey((previous) => previous + 1)
+    }
+  })
+
+  const reorderBoardsMutation = useMutation({
+    mutationFn: (orderedBoardIds: string[]) => reorderBoardsRemote(orderedBoardIds),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+    }
+  })
+
+  const markNotificationsReadMutation = useMutation({
+    mutationFn: (userId: string) => markNotificationsReadRemote(userId)
+  })
+
+  const markNotificationReadMutation = useMutation({
+    mutationFn: (variables: { userId: string; notificationId: string }) =>
+      markNotificationReadByIdRemote(variables.userId, variables.notificationId)
+  })
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: (variables: { userId: string; notificationId: string }) =>
+      deleteNotificationByIdRemote(variables.userId, variables.notificationId)
+  })
+
+  async function runMutation<TData, TError, TVariables>(
+    mutation: UseMutationResult<TData, TError, TVariables, unknown>,
+    variables: TVariables,
+    options?: {
+      onSuccess?: (data: TData) => Promise<void> | void
+      onError?: (error: TError) => void
+    }
+  ): Promise<{ ok: boolean; data?: TData }> {
+    try {
+      const data = await mutation.mutateAsync(variables)
+      await options?.onSuccess?.(data)
+      return { ok: true, data }
+    } catch (error) {
+      options?.onError?.(error as TError)
+      return { ok: false }
+    }
+  }
 
   const handleSelectBoard = (boardId: string) => {
     if (boardId === selectedBoardId && urlState.kind === 'board' && !urlState.cardId) {
       return
     }
     setFallbackBoardId(boardId)
-    setBoardReloadKey((prev) => prev + 1)
     navigateToBoard(boardId)
   }
 
@@ -187,35 +290,103 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     if (!nextTitle) {
       return
     }
-
-    await updateBoardRemote(boardId, { title: nextTitle, color })
-    setBoardReloadKey((prev) => prev + 1)
+    await runMutation(
+      renameBoardMutation,
+      { boardId, title: nextTitle, color },
+      {
+        onError: () => {
+          setBoardReloadKey((previous) => previous + 1)
+        }
+      }
+    )
   }
 
   const deleteBoard = async (boardId: string) => {
-    if (boards.length <= 1) {
+    if (boardMetaBoards.length <= 1) {
       return
     }
-    await deleteBoardRemote(boardId)
-    const nextBoards = boards.filter((board) => board.id !== boardId)
+
+    const deleteResult = await runMutation(deleteBoardMutation, boardId, {
+      onError: () => {
+        setBoardReloadKey((previous) => previous + 1)
+      }
+    })
+    if (!deleteResult.ok) {
+      return
+    }
+
+    const nextBoards = boardMetaBoards.filter((board) => board.id !== boardId)
     const nextBoardId = nextBoards[0]?.id ?? ''
-    setBoards(nextBoards)
+    setBoardMetaBoards(nextBoards)
     setFallbackBoardId(nextBoardId)
+
     if (nextBoardId) {
       navigateToBoard(nextBoardId, { replace: true })
-    } else {
-      setUrlState({ kind: 'root' })
-      updateHistory('/', true)
+      return
     }
-    setBoardReloadKey((prev) => prev + 1)
+
+    setUrlState({ kind: 'root' })
+    updateHistory('/', true)
   }
 
   const reorderBoards = async (orderedBoardIds: string[]) => {
+    const reorderResult = await runMutation(reorderBoardsMutation, orderedBoardIds)
+    if (!reorderResult.ok) {
+      return
+    }
     const orderMap = new Map(orderedBoardIds.map((id, index) => [id, index]))
-    const nextBoards = [...boards].sort((a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
-    setBoards(nextBoards)
-    await reorderBoardsRemote(orderedBoardIds)
-    setBoardReloadKey((prev) => prev + 1)
+    const sortedCatalog = [...boardCatalog].sort((a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+    queryClient.setQueryData(queryKeys.boardCatalog, sortedCatalog)
+  }
+
+  const syncMarkNotificationsRead = () => {
+    if (!currentMemberId) {
+      return
+    }
+
+    void runMutation(markNotificationsReadMutation, currentMemberId, {
+      onError: () => {
+        setBoardReloadKey((previous) => previous + 1)
+      }
+    })
+  }
+
+  const syncMarkNotificationRead = (notificationId: string) => {
+    if (!currentMemberId) {
+      return
+    }
+
+    void runMutation(
+      markNotificationReadMutation,
+      {
+        userId: currentMemberId,
+        notificationId
+      },
+      {
+        onError: () => {
+          setBoardReloadKey((previous) => previous + 1)
+        }
+      }
+    )
+  }
+
+  const syncDeleteNotification = (notificationId: string) => {
+    if (!currentMemberId) {
+      return
+    }
+
+    void runMutation(
+      deleteNotificationMutation,
+      {
+        userId: currentMemberId,
+        notificationId
+      },
+      {
+        onError: () => {
+          setBoardReloadKey((previous) => previous + 1)
+        }
+      }
+    )
   }
 
   useEffect(() => {
@@ -224,33 +395,18 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       setUrlState(parsed)
       if (parsed.kind === 'shared') {
         setPendingShareToken(parsed.token)
-      } else if (parsed.kind === 'board' && parsed.token) {
-        setPendingShareToken(parsed.token)
-      } else {
-        setPendingShareToken(null)
+        return
       }
+      if (parsed.kind === 'board' && parsed.token) {
+        setPendingShareToken(parsed.token)
+        return
+      }
+      setPendingShareToken(null)
     }
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
-
-  useEffect(() => {
-    void loadBoardCatalog()
-  }, [boardReloadKey, loadBoardCatalog])
-
-  useEffect(() => {
-    const handleFocus = () => {
-      void loadBoardCatalog()
-    }
-
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [loadBoardCatalog])
-
-  useEffect(() => {
-    void loadGlobalRoleUsers()
-  }, [loadGlobalRoleUsers])
 
   useEffect(() => {
     if (urlState.kind !== 'board') {
@@ -260,8 +416,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
       return
     }
 
-    const expected = buildBoardUrl(urlState.boardId, { cardId: urlState.cardId, token: urlState.token })
-    updateHistory(expected, true)
+    const expectedUrl = buildBoardUrl(urlState.boardId, { cardId: urlState.cardId, token: urlState.token })
+    updateHistory(expectedUrl, true)
   }, [urlState])
 
   useEffect(() => {
@@ -283,7 +439,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     lastOpenCardKeyRef.current = ''
     setOpenCardRequest(null)
     if (hadOpenCard) {
-      setCloseCardModalSignal((prev) => prev + 1)
+      setCloseCardModalSignal((previous) => previous + 1)
     }
   }, [urlState])
 
@@ -302,13 +458,14 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         }
         setFallbackBoardId(boardId)
         setShareJoinError(null)
-        setBoardReloadKey((prev) => prev + 1)
+        setBoardReloadKey((previous) => previous + 1)
         navigateToBoard(boardId, { replace: true })
+        await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
       } catch (error) {
         if (cancelled) {
           return
         }
-        const message = error instanceof Error ? error.message : 'Não foi possível entrar no board pelo link.'
+        const message = error instanceof Error ? error.message : 'Nao foi possivel entrar no board pelo link.'
         setShareJoinError(message)
       } finally {
         if (!cancelled) {
@@ -322,7 +479,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     return () => {
       cancelled = true
     }
-  }, [navigateToBoard, pendingShareToken])
+  }, [navigateToBoard, pendingShareToken, queryClient])
 
   return (
     <div className="grid h-screen grid-cols-1 grid-rows-[70px_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
@@ -333,9 +490,18 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           isLogoutLoading={isLogoutLoading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          searchScope={searchScope}
+          onSearchScopeChange={setSearchScope}
+          searchResults={searchEnabled ? searchQueryState.data ?? [] : []}
+          searchLoading={searchEnabled && searchQueryState.isLoading}
+          searchError={searchEnabled ? searchQueryState.error instanceof Error ? searchQueryState.error.message : null : null}
+          onSelectSearchResult={(result) => {
+            setFallbackBoardId(result.boardId)
+            navigateToBoard(result.boardId, { cardId: result.cardId })
+          }}
           onCreateBoard={triggerCreateBoard}
           canCreateBoard={currentUserRole === 'admin'}
-          onShareBoard={() => setShareBoardSignal((prev) => prev + 1)}
+          onShareBoard={() => setShareBoardSignal((previous) => previous + 1)}
           activeBoardTitle={selectedBoardCatalog?.title}
           activeBoardColor={selectedBoardCatalog?.color}
           notifications={profileNotifications}
@@ -344,40 +510,28 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             if (!currentMemberId) {
               return
             }
-            void markNotificationsReadRemote(currentMemberId)
-            setProfileNotifications((prev) => prev.map((notification) => ({ ...notification, isRead: true })))
+            setProfileNotifications((previous) => previous.map((notification) => ({ ...notification, isRead: true })))
             setUnreadNotificationsCount(0)
+            syncMarkNotificationsRead()
           }}
           onOpenNotification={(notification) => {
             if (!notification.isRead) {
-              setProfileNotifications((prev) =>
-                prev.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item))
-              )
-              setUnreadNotificationsCount((prev) => Math.max(0, prev - 1))
+              setProfileNotifications((previous) => previous.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)))
+              setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
 
-              if (currentMemberId) {
-                void markNotificationReadByIdRemote(currentMemberId, notification.id).catch(() => {
-                  setBoardReloadKey((prev) => prev + 1)
-                })
-              }
+              syncMarkNotificationRead(notification.id)
             }
 
             setFallbackBoardId(notification.boardId)
             navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
           }}
           onDeleteNotification={(notification) => {
-            setProfileNotifications((prev) => prev.filter((item) => item.id !== notification.id))
+            setProfileNotifications((previous) => previous.filter((item) => item.id !== notification.id))
             if (!notification.isRead) {
-              setUnreadNotificationsCount((prev) => Math.max(0, prev - 1))
+              setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
             }
 
-            if (!currentMemberId) {
-              return
-            }
-
-            void deleteNotificationByIdRemote(currentMemberId, notification.id).catch(() => {
-              setBoardReloadKey((prev) => prev + 1)
-            })
+            syncDeleteNotification(notification.id)
           }}
         />
       </div>
@@ -387,25 +541,19 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         activeBoardId={selectedBoardId}
         canCreateBoard={currentUserRole === 'admin'}
         currentUserRole={currentUserRole}
-        globalRoleUsers={globalRoleUsers}
-        isManagingRoles={isManagingGlobalRoles}
+        globalRoleUsers={globalRoleUsersQuery.data ?? []}
+        isManagingRoles={globalRoleMutation.isPending}
         onCreateBoard={triggerCreateBoard}
         onSelectBoard={handleSelectBoard}
         onReorderBoards={reorderBoards}
         onRenameBoard={renameBoard}
         onDeleteBoard={deleteBoard}
         onRefreshGlobalRoles={() => {
-          void loadGlobalRoleUsers()
+          void globalRoleUsersQuery.refetch()
         }}
         onSetGlobalRole={async (email, role) => {
-          setIsManagingGlobalRoles(true)
-          const result = await setGlobalRoleByEmailRemote(email, role)
-          if (result.ok) {
-            await Promise.all([loadGlobalRoleUsers(), loadBoardCatalog()])
-            setBoardReloadKey((prev) => prev + 1)
-          }
-          setIsManagingGlobalRoles(false)
-          return result
+          const mutationResult = await runMutation(globalRoleMutation, { email, role })
+          return mutationResult.data ?? { ok: false, message: 'Nao foi possivel atualizar o cargo global.' }
         }}
       />
 
@@ -415,6 +563,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             {shareJoinError}
           </div>
         )}
+
         <Board
           key={boardReloadKey}
           searchQuery={searchQuery}
@@ -426,8 +575,9 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           selectedBoardAccess={selectedBoardCatalog?.hasAccess ?? null}
           onBoardCreated={(boardId) => {
             setFallbackBoardId(boardId)
-            setBoardReloadKey((prev) => prev + 1)
+            setBoardReloadKey((previous) => previous + 1)
             navigateToBoard(boardId)
+            void queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
           }}
           onCardOpen={(boardId, cardId) => {
             navigateToBoard(boardId, { cardId })
@@ -436,7 +586,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             navigateToBoard(boardId, { replace: true })
           }}
           onBoardMetaChange={(meta) => {
-            setBoards(meta.boards)
+            setBoardMetaBoards(meta.boards)
             setFallbackBoardId(meta.currentBoardId)
             setCurrentMemberId(meta.currentMemberId)
             setCurrentUserRole(meta.currentUserRole)
@@ -469,4 +619,3 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     </div>
   )
 }
-

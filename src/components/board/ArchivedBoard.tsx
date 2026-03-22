@@ -1,59 +1,59 @@
-import { useCallback, useEffect, useState } from 'react'
 import { Archive, RotateCcw, Trash2 } from 'lucide-react'
+import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { queryKeys } from '@/lib/queryKeys'
 import { type ArchivedCardData } from '@/types'
 import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
 
 export default function ArchivedBoard() {
-  const [archivedCards, setArchivedCards] = useState<ArchivedCardData[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [deletingCardId, setDeletingCardId] = useState<string | null>(null)
-  const [restoringCardId, setRestoringCardId] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
-  const loadCards = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const store = await loadBoardStoreFromRemote()
-      setArchivedCards(store.archivedCards)
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : 'Não foi possível carregar os cartões arquivados.'
-      setError(message)
-    } finally {
-      setIsLoading(false)
+  const archivedCardsQuery = useQuery({
+    queryKey: queryKeys.archivedCards,
+    queryFn: async () => {
+      const store = await loadBoardStoreFromRemote(undefined, { forceRefresh: true, bypassInFlight: true })
+      return store.archivedCards
     }
-  }, [])
+  })
 
-  useEffect(() => {
-    void loadCards()
-  }, [loadCards])
-
-  const handleDeleteForever = async (cardId: string) => {
-    setDeletingCardId(cardId)
-    try {
-      await deleteCardRemote(cardId)
-      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
-    } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : 'Não foi possível excluir o cartão arquivado.'
-      setError(message)
-    } finally {
-      setDeletingCardId(null)
+  const restoreMutation = useMutation({
+    mutationFn: (cardId: string) => restoreArchivedCardRemote(cardId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.archivedCards })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
     }
-  }
+  })
 
-  const handleRestore = async (cardId: string) => {
-    setRestoringCardId(cardId)
+  const deleteMutation = useMutation({
+    mutationFn: (cardId: string) => deleteCardRemote(cardId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.archivedCards })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+    }
+  })
+
+  async function runMutation<TData, TError, TVariables>(
+    mutation: UseMutationResult<TData, TError, TVariables, unknown>,
+    variables: TVariables
+  ): Promise<{ ok: boolean; error?: TError }> {
     try {
-      await restoreArchivedCardRemote(cardId)
-      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
-    } catch (restoreError) {
-      const message = restoreError instanceof Error ? restoreError.message : 'Não foi possível restaurar o cartão arquivado.'
-      setError(message)
-    } finally {
-      setRestoringCardId(null)
+      await mutation.mutateAsync(variables)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error as TError }
     }
   }
+
+  const handleRestoreArchivedCard = async (cardId: string) => {
+    await runMutation(restoreMutation, cardId)
+  }
+
+  const handleDeleteArchivedCard = async (cardId: string) => {
+    await runMutation(deleteMutation, cardId)
+  }
+
+  const archivedCards: ArchivedCardData[] = archivedCardsQuery.data ?? []
+  const queryErrorMessage = archivedCardsQuery.error instanceof Error ? archivedCardsQuery.error.message : null
 
   return (
     <div className="h-full w-full overflow-y-auto p-8 text-foreground">
@@ -62,22 +62,22 @@ export default function ArchivedBoard() {
         Arquivados
       </h1>
 
-      {isLoading && (
+      {archivedCardsQuery.isLoading && (
         <div className="flex h-64 items-center justify-center text-muted-foreground">
-          <p>Carregando cartões arquivados...</p>
+          <p>Carregando cartoes arquivados...</p>
         </div>
       )}
 
-      {error && !isLoading && (
+      {queryErrorMessage && !archivedCardsQuery.isLoading && (
         <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#141414] px-4 py-3">
-          <p className="text-sm text-[#d1d1d1]">{error}</p>
-          <Button variant="outline" className="h-8 border-white/20 bg-transparent text-xs text-white hover:bg-white/10" onClick={() => void loadCards()}>
+          <p className="text-sm text-[#d1d1d1]">{queryErrorMessage}</p>
+          <Button variant="outline" className="h-8 border-white/20 bg-transparent text-xs text-white hover:bg-white/10" onClick={() => void archivedCardsQuery.refetch()}>
             Tentar novamente
           </Button>
         </div>
       )}
 
-      {!isLoading && archivedCards.length === 0 ? (
+      {!archivedCardsQuery.isLoading && !queryErrorMessage && archivedCards.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center text-muted-foreground">
           <p>Nenhum card arquivado.</p>
         </div>
@@ -95,9 +95,9 @@ export default function ArchivedBoard() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-[#9fd2ff] hover:bg-[#0ea5e9]/10 hover:text-[#d1ecff]"
-                      onClick={() => void handleRestore(card.id)}
-                      aria-label="Restaurar cartão"
-                      disabled={restoringCardId === card.id || deletingCardId === card.id}
+                      onClick={() => void handleRestoreArchivedCard(card.id)}
+                      aria-label="Restaurar cartao"
+                      disabled={restoreMutation.isPending || deleteMutation.isPending}
                     >
                       <RotateCcw className="size-4" />
                     </Button>
@@ -105,9 +105,9 @@ export default function ArchivedBoard() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                      onClick={() => void handleDeleteForever(card.id)}
+                      onClick={() => void handleDeleteArchivedCard(card.id)}
                       aria-label="Excluir definitivamente"
-                      disabled={deletingCardId === card.id || restoringCardId === card.id}
+                      disabled={deleteMutation.isPending || restoreMutation.isPending}
                     >
                       <Trash2 className="size-4" />
                     </Button>

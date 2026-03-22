@@ -16,6 +16,8 @@ import {
   type Member,
   type MemberNotification,
   type RecordCardActivityInput,
+  type SearchResultItem,
+  type SearchScope,
   type SharePermission
 } from '@/types'
 
@@ -130,6 +132,16 @@ type BoardCatalogRow = {
   color: string
   updated_at: string
   has_access: boolean
+}
+
+type SearchResultRow = {
+  card_id: string
+  card_title: string
+  board_id: string
+  board_title: string
+  list_id: string
+  list_title: string
+  rank: number
 }
 
 type GlobalRoleUserRow = {
@@ -781,6 +793,9 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string, options?: { f
 const BOARD_STORE_CACHE_TTL_MS = 5000
 const boardStoreCacheByKey = new Map<string, { expiresAt: number; value: BoardStore }>()
 const boardStoreInFlightByKey = new Map<string, Promise<BoardStore>>()
+const SEARCH_CACHE_TTL_MS = 30000
+const searchResultsCacheByKey = new Map<string, { expiresAt: number; value: SearchResultItem[] }>()
+const searchResultsInFlightByKey = new Map<string, Promise<SearchResultItem[]>>()
 
 function cloneBoardStore(store: BoardStore): BoardStore {
   return JSON.parse(JSON.stringify(store)) as BoardStore
@@ -792,6 +807,9 @@ function getStoreCacheKey(selectedBoardId?: string): string {
 }
 
 function invalidateBoardStoreCache(boardId?: string): void {
+  searchResultsCacheByKey.clear()
+  searchResultsInFlightByKey.clear()
+
   if (!boardId) {
     boardStoreCacheByKey.clear()
     return
@@ -799,6 +817,22 @@ function invalidateBoardStoreCache(boardId?: string): void {
 
   boardStoreCacheByKey.delete(getStoreCacheKey(boardId))
   boardStoreCacheByKey.delete(getStoreCacheKey())
+}
+
+function getSearchCacheKey(input: {
+  query: string
+  scope: SearchScope
+  boardId: string
+  limit: number
+  offset: number
+}): string {
+  return [
+    input.scope,
+    input.boardId || '-',
+    input.limit.toString(),
+    input.offset.toString(),
+    input.query.toLowerCase()
+  ].join('|')
 }
 
 export async function loadBoardStoreFromRemote(
@@ -863,6 +897,95 @@ export async function listBoardCatalogRemote(): Promise<BoardCatalogItem[]> {
     updatedAt: row.updated_at,
     hasAccess: row.has_access
   }))
+}
+
+export async function searchCardsFtsRemote(input: {
+  query: string
+  scope: SearchScope
+  boardId?: string
+  limit?: number
+  offset?: number
+  bypassCache?: boolean
+  signal?: AbortSignal
+}): Promise<SearchResultItem[]> {
+  const normalizedQuery = input.query.trim()
+  if (normalizedQuery.length < 3) {
+    return []
+  }
+
+  const normalizedScope: SearchScope = input.scope === 'all' ? 'all' : 'board'
+  const normalizedBoardId = input.boardId?.trim() ?? ''
+  const limit = Math.min(20, Math.max(1, input.limit ?? 10))
+  const offset = Math.max(0, input.offset ?? 0)
+  const cacheKey = getSearchCacheKey({
+    query: normalizedQuery,
+    scope: normalizedScope,
+    boardId: normalizedBoardId,
+    limit,
+    offset
+  })
+
+  const now = Date.now()
+  if (!input.bypassCache) {
+    const cachedEntry = searchResultsCacheByKey.get(cacheKey)
+    if (cachedEntry && cachedEntry.expiresAt > now) {
+      return cachedEntry.value.map((item) => ({ ...item }))
+    }
+
+    const inFlightPromise = searchResultsInFlightByKey.get(cacheKey)
+    if (inFlightPromise) {
+      const inFlightData = await inFlightPromise
+      return inFlightData.map((item) => ({ ...item }))
+    }
+  }
+
+  const rpcPromise = (async () => {
+    let rpcQuery = supabase.rpc('search_cards_fts', {
+      p_query: normalizedQuery,
+      p_board_id: normalizedScope === 'board' ? normalizedBoardId || null : null,
+      p_scope: normalizedScope,
+      p_limit: limit,
+      p_offset: offset
+    })
+    if (input.signal) {
+      rpcQuery = rpcQuery.abortSignal(input.signal)
+    }
+
+    const { data, error } = await rpcQuery
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    const rows = (data as SearchResultRow[] | null) ?? []
+    const mappedRows = rows.map((row) => ({
+      cardId: row.card_id,
+      cardTitle: row.card_title,
+      boardId: row.board_id,
+      boardTitle: row.board_title,
+      listId: row.list_id,
+      listTitle: row.list_title,
+      rank: Number.isFinite(row.rank) ? row.rank : 0
+    }))
+
+    searchResultsCacheByKey.set(cacheKey, {
+      expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+      value: mappedRows
+    })
+
+    return mappedRows
+  })()
+
+  if (!input.bypassCache) {
+    searchResultsInFlightByKey.set(cacheKey, rpcPromise)
+  }
+
+  try {
+    const result = await rpcPromise
+    return result.map((item) => ({ ...item }))
+  } finally {
+    searchResultsInFlightByKey.delete(cacheKey)
+  }
 }
 
 export async function listGlobalAdminsAndMembersRemote(): Promise<GlobalRoleUser[]> {
@@ -1133,6 +1256,8 @@ async function replaceCardLabelsRemote(boardId: string, cardId: string, labels: 
   const toDelete = ((existingRows as Array<{ label_id: string }> | null) ?? [])
     .map((row) => row.label_id)
     .filter((labelId) => !desiredLabelIds.includes(labelId))
+  const existingLabelIds = new Set(((existingRows as Array<{ label_id: string }> | null) ?? []).map((row) => row.label_id))
+  const toInsert = desiredLabelIds.filter((labelId) => !existingLabelIds.has(labelId))
 
   if (toDelete.length > 0) {
     const { error: deleteError } = await supabase
@@ -1146,15 +1271,17 @@ async function replaceCardLabelsRemote(boardId: string, cardId: string, labels: 
     }
   }
 
-  const { error: upsertError } = await supabase.from('card_labels').upsert(
-    uniqueLabels.map((label) => ({
-      card_id: cardId,
-      label_id: label.id
-    })),
-    { onConflict: 'card_id,label_id' }
-  )
-  if (upsertError) {
-    throw new Error(upsertError.message)
+  if (toInsert.length > 0) {
+    const { error: insertError } = await supabase.from('card_labels').upsert(
+      toInsert.map((labelId) => ({
+        card_id: cardId,
+        label_id: labelId
+      })),
+      { onConflict: 'card_id,label_id', ignoreDuplicates: true }
+    )
+    if (insertError) {
+      throw new Error(insertError.message)
+    }
   }
 }
 

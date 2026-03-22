@@ -1,10 +1,12 @@
-﻿import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+﻿import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
+import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ArrowLeft, ChevronDown, Crown, Lock, Plus, RotateCcw, Settings2, SquareKanban, Trash2, X } from 'lucide-react'
 import archivedIcon from '@/assets/icons/icon-arquivados.svg'
 import membersIcon from '@/assets/icons/icon-membros.svg'
+import { queryKeys } from '@/lib/queryKeys'
 import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
 import { type ArchivedCardData, type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole } from '@/types'
 
@@ -104,6 +106,7 @@ export default function Sidebar({
   onSetGlobalRole,
   onRefreshGlobalRoles
 }: SidebarProps) {
+  const queryClient = useQueryClient()
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState('')
@@ -115,11 +118,6 @@ export default function Sidebar({
   const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
-  const [archivedCards, setArchivedCards] = useState<ArchivedCardData[]>([])
-  const [isLoadingArchivedCards, setIsLoadingArchivedCards] = useState(false)
-  const [archivedCardsError, setArchivedCardsError] = useState<string | null>(null)
-  const [restoringCardId, setRestoringCardId] = useState<string | null>(null)
-  const [deletingArchivedCardId, setDeletingArchivedCardId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -131,19 +129,50 @@ export default function Sidebar({
   const deletingBoard = deletingBoardId ? boards.find((item) => item.id === deletingBoardId) ?? null : null
   const isAdmin = currentUserRole === 'admin'
 
-  const loadArchivedCards = useCallback(async () => {
-    setIsLoadingArchivedCards(true)
-    setArchivedCardsError(null)
-    try {
+  const archivedCardsQuery = useQuery({
+    queryKey: queryKeys.archivedCards,
+    queryFn: async () => {
       const store = await loadBoardStoreFromRemote(undefined, { forceRefresh: true, bypassInFlight: true })
-      setArchivedCards(store.archivedCards)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel carregar os cards arquivados.'
-      setArchivedCardsError(message)
-    } finally {
-      setIsLoadingArchivedCards(false)
+      return store.archivedCards
+    },
+    enabled: isSettingsOpen && settingsView === 'archived'
+  })
+
+  const restoreArchivedCardMutation = useMutation({
+    mutationFn: (cardId: string) => restoreArchivedCardRemote(cardId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.archivedCards }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+      ])
     }
-  }, [])
+  })
+
+  const deleteArchivedCardMutation = useMutation({
+    mutationFn: (cardId: string) => deleteCardRemote(cardId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.archivedCards }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
+      ])
+    }
+  })
+
+  async function runMutation<TData, TError, TVariables>(
+    mutation: UseMutationResult<TData, TError, TVariables, unknown>,
+    variables: TVariables
+  ): Promise<{ ok: boolean; data?: TData; error?: TError }> {
+    try {
+      const data = await mutation.mutateAsync(variables)
+      return { ok: true, data }
+    } catch (error) {
+      return { ok: false, error: error as TError }
+    }
+  }
+
+  const archivedCards: ArchivedCardData[] = archivedCardsQuery.data ?? []
+  const isLoadingArchivedCards = archivedCardsQuery.isLoading
+  const archivedCardsError = archivedCardsQuery.error instanceof Error ? archivedCardsQuery.error.message : null
 
   const openSettings = () => {
     setIsSettingsOpen(true)
@@ -155,37 +184,24 @@ export default function Sidebar({
 
   const openSettingsView = (view: SettingsView) => {
     setSettingsView(view)
-    if (view === 'archived') {
-      void loadArchivedCards()
-    }
     if (view === 'members') {
       void onRefreshGlobalRoles()
     }
   }
 
   const handleRestoreArchivedCard = async (cardId: string) => {
-    setRestoringCardId(cardId)
-    try {
-      await restoreArchivedCardRemote(cardId)
-      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel restaurar o card arquivado.'
-      setArchivedCardsError(message)
-    } finally {
-      setRestoringCardId(null)
+    const result = await runMutation(restoreArchivedCardMutation, cardId)
+    if (!result.ok) {
+      const message = result.error instanceof Error ? result.error.message : 'Nao foi possivel restaurar o card arquivado.'
+      setSettingsError(message)
     }
   }
 
   const handleDeleteArchivedCard = async (cardId: string) => {
-    setDeletingArchivedCardId(cardId)
-    try {
-      await deleteCardRemote(cardId)
-      setArchivedCards((prev) => prev.filter((card) => card.id !== cardId))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nao foi possivel excluir o card arquivado.'
-      setArchivedCardsError(message)
-    } finally {
-      setDeletingArchivedCardId(null)
+    const result = await runMutation(deleteArchivedCardMutation, cardId)
+    if (!result.ok) {
+      const message = result.error instanceof Error ? result.error.message : 'Nao foi possivel excluir o card arquivado.'
+      setSettingsError(message)
     }
   }
 
@@ -213,6 +229,24 @@ export default function Sidebar({
     setRoleEmailDraft('')
     setSettingsError('')
     setSettingsMessage(result.message)
+  }
+
+  const handleToggleGlobalRole = async (email: string, role: GlobalUserRole) => {
+    if (!isAdmin) {
+      setSettingsError('Somente administradores podem alterar cargos globais.')
+      setSettingsMessage('')
+      return
+    }
+
+    const result = await onSetGlobalRole(email, role)
+    if (result.ok) {
+      setSettingsError('')
+      setSettingsMessage(result.message)
+      return
+    }
+
+    setSettingsError(result.message)
+    setSettingsMessage('')
   }
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -611,18 +645,7 @@ export default function Sidebar({
                           <button
                             type="button"
                             onClick={() => {
-                              if (!isAdmin) {
-                                return
-                              }
-                              void onSetGlobalRole(user.email, targetRole).then((result) => {
-                                if (result.ok) {
-                                  setSettingsError('')
-                                  setSettingsMessage(result.message)
-                                } else {
-                                  setSettingsError(result.message)
-                                  setSettingsMessage('')
-                                }
-                              })
+                              void handleToggleGlobalRole(user.email, targetRole)
                             }}
                             disabled={!isAdmin || isManagingRoles}
                             className="h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
@@ -668,7 +691,7 @@ export default function Sidebar({
                       <p className="text-sm text-[#ff9ab8]">{archivedCardsError}</p>
                       <button
                         type="button"
-                        onClick={() => void loadArchivedCards()}
+                        onClick={() => void archivedCardsQuery.refetch()}
                         className="mt-3 h-8 rounded-[7px] border border-white/20 px-3 text-xs font-semibold text-white hover:bg-white/10"
                       >
                         Tentar novamente
@@ -700,7 +723,7 @@ export default function Sidebar({
                                 <button
                                   type="button"
                                   onClick={() => void handleRestoreArchivedCard(card.id)}
-                                  disabled={restoringCardId === card.id || deletingArchivedCardId === card.id}
+                                  disabled={restoreArchivedCardMutation.isPending || deleteArchivedCardMutation.isPending}
                                   className="inline-flex size-8 items-center justify-center rounded-md border border-[#1f4f7a] text-[#9fd2ff] hover:bg-[#0ea5e9]/10 disabled:cursor-not-allowed disabled:opacity-60"
                                   aria-label="Restaurar card"
                                 >
@@ -709,7 +732,7 @@ export default function Sidebar({
                                 <button
                                   type="button"
                                   onClick={() => void handleDeleteArchivedCard(card.id)}
-                                  disabled={deletingArchivedCardId === card.id || restoringCardId === card.id}
+                                  disabled={deleteArchivedCardMutation.isPending || restoreArchivedCardMutation.isPending}
                                   className="inline-flex size-8 items-center justify-center rounded-md border border-[#743039] text-[#ff9ab8] hover:bg-[#aa003f]/20 disabled:cursor-not-allowed disabled:opacity-60"
                                   aria-label="Excluir card arquivado"
                                 >
@@ -730,4 +753,6 @@ export default function Sidebar({
     </aside>
   )
 }
+
+
 
