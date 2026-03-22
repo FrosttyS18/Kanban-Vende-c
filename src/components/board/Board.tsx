@@ -69,6 +69,14 @@ type BoardProps = {
   }) => void
 }
 
+type ContextConfirmActionKind = 'archive_card' | 'delete_card' | 'delete_list'
+
+type ContextConfirmAction = {
+  kind: ContextConfirmActionKind
+  targetId: string
+  targetTitle: string
+}
+
 const LIST_TITLE_MAX_LENGTH = 150
 const BOARD_COLOR_OPTIONS = [
   '#ff0068',
@@ -208,6 +216,9 @@ export default function Board({
   const [isLoadingStore, setIsLoadingStore] = useState(true)
   const [storeError, setStoreError] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
+  const [operationSuccess, setOperationSuccess] = useState<string | null>(null)
+  const [confirmContextAction, setConfirmContextAction] = useState<ContextConfirmAction | null>(null)
+  const [isConfirmingContextAction, setIsConfirmingContextAction] = useState(false)
   const [isAddingList, setIsAddingList] = useState(false)
   const [newListTitle, setNewListTitle] = useState('')
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
@@ -228,6 +239,7 @@ export default function Board({
   const realtimeReconnectAttemptRef = useRef(0)
   const [realtimeSubscriptionVersion, setRealtimeSubscriptionVersion] = useState(0)
   const operationErrorTimerRef = useRef<number | null>(null)
+  const operationSuccessTimerRef = useRef<number | null>(null)
   const storeRef = useRef<BoardStore>(EMPTY_STORE)
   const dragSnapshotRef = useRef<{ cards: CardData[]; columns: ColumnData[] } | null>(null)
   const loadStoreRequestIdRef = useRef(0)
@@ -248,6 +260,9 @@ export default function Board({
     return () => {
       if (operationErrorTimerRef.current) {
         window.clearTimeout(operationErrorTimerRef.current)
+      }
+      if (operationSuccessTimerRef.current) {
+        window.clearTimeout(operationSuccessTimerRef.current)
       }
       if (realtimeDebounceTimerRef.current) {
         window.clearTimeout(realtimeDebounceTimerRef.current)
@@ -276,6 +291,16 @@ export default function Board({
     operationErrorTimerRef.current = window.setTimeout(() => {
       setOperationError(null)
     }, MUTATION_ERROR_RESET_MS)
+  }, [])
+
+  const showOperationSuccess = useCallback((message: string) => {
+    setOperationSuccess(message)
+    if (operationSuccessTimerRef.current) {
+      window.clearTimeout(operationSuccessTimerRef.current)
+    }
+    operationSuccessTimerRef.current = window.setTimeout(() => {
+      setOperationSuccess(null)
+    }, 2200)
   }, [])
 
   const sensors = useSensors(
@@ -1109,25 +1134,30 @@ export default function Board({
       })
   }
 
-  const deleteCard = (cardId: string) => {
+  const deleteCard = async (cardId: string) => {
     const snapshot = storeRef.current
     applyStore({
       ...snapshot,
       cards: snapshot.cards.filter((card) => card.id !== cardId)
     })
-    void runMutation(deleteCardMutation, cardId, {
+    const deleteResult = await runMutation(deleteCardMutation, cardId, {
       action: 'delete_card',
       boardId: activeBoardId,
       resourceId: cardId,
       includeArchived: true
     })
+    if (deleteResult.ok) {
+      showOperationSuccess('Cartao excluido com sucesso.')
+      return true
+    }
+    return false
   }
 
-  const archiveCard = (cardId: string) => {
+  const archiveCard = async (cardId: string) => {
     const snapshot = storeRef.current
     const card = snapshot.cards.find((item) => item.id === cardId)
     if (!card) {
-      return
+      return false
     }
 
     const list = snapshot.columns.find((column) => column.id === card.listId)
@@ -1151,12 +1181,17 @@ export default function Board({
       ]
     })
 
-    void runMutation(archiveCardMutation, cardId, {
+    const archiveResult = await runMutation(archiveCardMutation, cardId, {
       action: 'archive_card',
       boardId: activeBoardId,
       resourceId: cardId,
       includeArchived: true
     })
+    if (archiveResult.ok) {
+      showOperationSuccess('Cartao arquivado com sucesso.')
+      return true
+    }
+    return false
   }
 
   const addList = () => {
@@ -1207,7 +1242,7 @@ export default function Board({
     })
   }
 
-  const deleteColumn = (columnId: string) => {
+  const deleteColumn = async (columnId: string) => {
     const snapshot = storeRef.current
     const remainingColumns = snapshot.columns.filter((column) => column.id !== columnId)
     const normalizedColumns = remainingColumns.map((column) => {
@@ -1228,11 +1263,97 @@ export default function Board({
       columns: normalizedColumns,
       cards: snapshot.cards.filter((card) => card.listId !== columnId)
     })
-    void runMutation(deleteListMutation, columnId, {
+    const deleteResult = await runMutation(deleteListMutation, columnId, {
       action: 'delete_list',
       boardId: activeBoardId,
       resourceId: columnId
     })
+    if (deleteResult.ok) {
+      showOperationSuccess('Lista excluida com sucesso.')
+      return true
+    }
+    return false
+  }
+
+  const requestDeleteCard = (cardId: string) => {
+    const snapshot = storeRef.current
+    const cardTitle = snapshot.cards.find((card) => card.id === cardId)?.title ?? 'este cartao'
+    setConfirmContextAction({
+      kind: 'delete_card',
+      targetId: cardId,
+      targetTitle: cardTitle
+    })
+  }
+
+  const requestArchiveCard = (cardId: string) => {
+    const snapshot = storeRef.current
+    const cardTitle = snapshot.cards.find((card) => card.id === cardId)?.title ?? 'este cartao'
+    setConfirmContextAction({
+      kind: 'archive_card',
+      targetId: cardId,
+      targetTitle: cardTitle
+    })
+  }
+
+  const requestDeleteColumn = (columnId: string) => {
+    const snapshot = storeRef.current
+    const columnTitle = snapshot.columns.find((column) => column.id === columnId)?.title ?? 'esta lista'
+    setConfirmContextAction({
+      kind: 'delete_list',
+      targetId: columnId,
+      targetTitle: columnTitle
+    })
+  }
+
+  const confirmContextActionConfig = useMemo(() => {
+    if (!confirmContextAction) {
+      return null
+    }
+
+    if (confirmContextAction.kind === 'archive_card') {
+      return {
+        title: 'Arquivar cartao',
+        description: `Deseja arquivar "${confirmContextAction.targetTitle}"?`,
+        confirmLabel: 'Arquivar'
+      }
+    }
+
+    if (confirmContextAction.kind === 'delete_card') {
+      return {
+        title: 'Excluir cartao',
+        description: `Deseja excluir "${confirmContextAction.targetTitle}"? Esta acao nao pode ser desfeita.`,
+        confirmLabel: 'Excluir'
+      }
+    }
+
+    return {
+      title: 'Excluir lista',
+      description: `Deseja excluir a lista "${confirmContextAction.targetTitle}"? Os cartoes desta lista tambem serao removidos.`,
+      confirmLabel: 'Excluir lista'
+    }
+  }, [confirmContextAction])
+
+  const handleConfirmContextAction = async () => {
+    if (!confirmContextAction) {
+      return
+    }
+
+    setIsConfirmingContextAction(true)
+    let ok = false
+
+    if (confirmContextAction.kind === 'archive_card') {
+      ok = await archiveCard(confirmContextAction.targetId)
+    } else if (confirmContextAction.kind === 'delete_card') {
+      ok = await deleteCard(confirmContextAction.targetId)
+    } else {
+      ok = await deleteColumn(confirmContextAction.targetId)
+    }
+
+    setIsConfirmingContextAction(false)
+
+    if (ok) {
+      setConfirmContextAction(null)
+    }
   }
 
   const updateAvailableLabels = (labels: Label[]) => {
@@ -1797,6 +1918,11 @@ export default function Board({
           </div>
         </div>
       )}
+      {operationSuccess && (
+        <div className="pointer-events-none fixed bottom-6 right-6 z-[92] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
+          {operationSuccess}
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -1813,11 +1939,11 @@ export default function Board({
                   column={column}
                   cards={cardsByList.get(column.id) ?? []}
                   onRename={renameColumn}
-                  onDelete={deleteColumn}
+                  onDelete={requestDeleteColumn}
                   onAddCard={addCardToList}
                   onUpdateCard={updateCardInStore}
-                  onDeleteCard={deleteCard}
-                  onArchiveCard={archiveCard}
+                  onDeleteCard={requestDeleteCard}
+                  onArchiveCard={requestArchiveCard}
                   availableLabels={availableLabels}
                   onUpdateAvailableLabels={updateAvailableLabels}
                   listOptions={listOptions}
@@ -1921,8 +2047,8 @@ export default function Board({
                 boardId={activeBoardId}
                 onRecordActivity={handleRecordCardActivity}
                 onUpdate={updateCardInStore}
-                onDelete={deleteCard}
-                onArchive={archiveCard}
+                onDelete={requestDeleteCard}
+                onArchive={requestArchiveCard}
                 isOverlay
                 disableModal
               />
@@ -1999,6 +2125,34 @@ export default function Board({
           onChange={updateShareSettings}
           onInviteByEmail={inviteMemberByEmail}
         />
+      )}
+
+      {confirmContextAction && confirmContextActionConfig && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true" aria-label={confirmContextActionConfig.title}>
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1f1f21] p-5">
+            <h3 className="text-lg font-semibold text-white">{confirmContextActionConfig.title}</h3>
+            <p className="mt-2 text-sm text-[#d1d1d1]">{confirmContextActionConfig.description}</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 px-4 text-[#d1d1d1] hover:bg-white/10"
+                disabled={isConfirmingContextAction}
+                onClick={() => setConfirmContextAction(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="h-9 bg-primary px-4 text-white hover:bg-primary/90"
+                disabled={isConfirmingContextAction}
+                onClick={() => void handleConfirmContextAction()}
+              >
+                {isConfirmingContextAction ? 'Confirmando...' : confirmContextActionConfig.confirmLabel}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
