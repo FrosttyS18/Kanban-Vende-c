@@ -83,8 +83,10 @@ export default function Header({
   const [highlightedResultIndex, setHighlightedResultIndex] = useState(-1)
   const [deletingNotificationIds, setDeletingNotificationIds] = useState<string[]>([])
   const [notificationToastMessage, setNotificationToastMessage] = useState<string | null>(null)
-  const userMenuRef = useRef<HTMLDivElement>(null)
-  const notificationMenuRef = useRef<HTMLDivElement>(null)
+  const userMenuDesktopRef = useRef<HTMLDivElement>(null)
+  const notificationMenuDesktopRef = useRef<HTMLDivElement>(null)
+  const userMenuMobileRef = useRef<HTMLDivElement>(null)
+  const notificationMenuMobileRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLDivElement>(null)
   const deleteTimersRef = useRef<number[]>([])
   const toastTimerRef = useRef<number | null>(null)
@@ -102,8 +104,12 @@ export default function Header({
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node
-      const clickedUserMenu = userMenuRef.current?.contains(target)
-      const clickedNotificationMenu = notificationMenuRef.current?.contains(target)
+      const clickedUserMenu =
+        userMenuDesktopRef.current?.contains(target) ||
+        userMenuMobileRef.current?.contains(target)
+      const clickedNotificationMenu =
+        notificationMenuDesktopRef.current?.contains(target) ||
+        notificationMenuMobileRef.current?.contains(target)
       const clickedSearch = searchRef.current?.contains(target)
 
       if (clickedUserMenu || clickedNotificationMenu || clickedSearch) {
@@ -186,9 +192,120 @@ export default function Header({
         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
           <Logo className="h-8 w-auto" />
         </div>
-        <span className="ml-auto inline-flex size-10 items-center justify-center rounded-full bg-primary text-[18px] font-semibold text-white">
-          {initials}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <div ref={notificationMenuMobileRef} className="relative">
+            <button
+              type="button"
+              onClick={() =>
+                setIsNotificationsOpen((prev) => {
+                  const next = !prev
+                  setIsUserMenuOpen(false)
+                  return next
+                })
+              }
+              className="inline-flex size-8 items-center justify-center rounded-full border border-white/15 bg-[#252525] text-[#d1d1d1] hover:bg-[#2f2f2f]"
+              aria-label="Abrir notificações"
+            >
+              <Bell className="size-4" />
+            </button>
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -right-1 -top-1 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-[#ff2d55] px-1 text-[9px] font-bold text-white">
+                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+              </span>
+            )}
+
+            {isNotificationsOpen && (
+              <div className="absolute right-0 top-10 z-50 w-[min(304px,calc(100vw-24px))] rounded-lg border border-white/10 bg-[#1e1e1e] p-2 shadow-xl">
+                <div className="flex items-center justify-between px-1 py-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#a9a9a9]">Notificações</p>
+                  {unreadNotificationsCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkNotificationsRead?.()}
+                      className="text-[10px] font-semibold text-primary hover:text-primary/80"
+                    >
+                      Marcar todas
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1 max-h-66 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-[#9a9a9a]">Sem notificações novas.</p>
+                  ) : (
+                    notifications.map((notification) => {
+                      const isDeleting = deletingNotificationIds.includes(notification.id)
+                      return (
+                        <div
+                          key={notification.id}
+                          className={`flex items-start gap-1 rounded-[6px] px-1 py-1 transition-all duration-200 ease-out ${notification.isRead ? 'hover:bg-white/5' : 'bg-[#ff0068]/12 hover:bg-[#ff0068]/18'} ${isDeleting ? '-translate-x-2 scale-[0.98] opacity-0' : 'translate-x-0 scale-100 opacity-100'}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onOpenNotification?.(notification)
+                              setIsNotificationsOpen(false)
+                            }}
+                            disabled={isDeleting}
+                            className="flex-1 rounded-[6px] px-1 py-1 text-left disabled:cursor-not-allowed"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              {!notification.isRead && <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />}
+                              <p className={`text-xs font-semibold ${notification.isRead ? 'text-white' : 'text-[#ffe3f0]'}`}>{notification.title}</p>
+                            </div>
+                            <p className={`mt-0.5 line-clamp-2 text-xs ${notification.isRead ? 'text-[#d1d1d1]' : 'text-[#ffd4e9]'}`}>{notification.message}</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNotification(notification)}
+                            disabled={isDeleting}
+                            className="mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-[#a9a9a9] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label="Excluir notificação"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div ref={userMenuMobileRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsNotificationsOpen(false)
+                setIsUserMenuOpen((prev) => !prev)
+              }}
+              className="flex size-10 items-center justify-center rounded-full bg-primary text-[16px] font-semibold text-white"
+              aria-label="Abrir menu de usuário"
+            >
+              {initials}
+            </button>
+            {isUserMenuOpen && (
+              <div className="absolute right-0 top-11 z-50 w-56 rounded-lg border border-white/10 bg-[#1e1e1e] p-2 shadow-xl">
+                <div className="mb-2 rounded-md bg-[#252525] px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm text-[#d1d1d1]">
+                    <UserRound className="size-4" />
+                    <span className="truncate">{userEmail ?? 'Usuário'}</span>
+                  </div>
+                </div>
+                {onLogout && (
+                  <Button
+                    onClick={onLogout}
+                    disabled={isLogoutLoading}
+                    variant="ghost"
+                    className="h-9 w-full justify-start text-sm text-[#d1d1d1] hover:bg-white/10"
+                  >
+                    {isLogoutLoading ? 'Saindo...' : 'Sair'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="hidden min-h-17.5 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 lg:flex lg:gap-4 lg:px-6.5 lg:py-0">
@@ -350,7 +467,7 @@ export default function Header({
             Criar
           </Button>
 
-          <div ref={notificationMenuRef} className="relative">
+          <div ref={notificationMenuDesktopRef} className="relative">
             <button
               type="button"
               onClick={() =>
@@ -429,7 +546,7 @@ export default function Header({
             )}
           </div>
 
-          <div ref={userMenuRef} className="relative ml-1.5">
+          <div ref={userMenuDesktopRef} className="relative ml-1.5">
             <button
               type="button"
               onClick={() => {
