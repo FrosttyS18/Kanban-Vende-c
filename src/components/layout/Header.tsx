@@ -16,6 +16,7 @@ interface HeaderProps {
   searchResults: SearchResultItem[]
   searchLoading?: boolean
   searchError?: string | null
+  searchOpeningLabel?: string | null
   onSelectSearchResult?: (result: SearchResultItem) => void
   onCreateBoard: () => void
   canCreateBoard?: boolean
@@ -59,6 +60,7 @@ export default function Header({
   searchResults,
   searchLoading = false,
   searchError = null,
+  searchOpeningLabel = null,
   onSelectSearchResult,
   onCreateBoard,
   canCreateBoard = true,
@@ -75,9 +77,13 @@ export default function Header({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [highlightedResultIndex, setHighlightedResultIndex] = useState(-1)
+  const [deletingNotificationIds, setDeletingNotificationIds] = useState<string[]>([])
+  const [notificationToastMessage, setNotificationToastMessage] = useState<string | null>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const notificationMenuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLDivElement>(null)
+  const deleteTimersRef = useRef<number[]>([])
+  const toastTimerRef = useRef<number | null>(null)
 
   const initials = useMemo(() => getInitials(userEmail), [userEmail])
   const normalizedQuery = searchQuery.trim()
@@ -123,10 +129,41 @@ export default function Header({
     }
   }, [isNotificationsOpen, isSearchOpen, isUserMenuOpen])
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current)
+      }
+      deleteTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+      deleteTimersRef.current = []
+    }
+  }, [])
+
   const handleSelectSearchResult = (result: SearchResultItem) => {
     onSelectSearchResult?.(result)
     setIsSearchOpen(false)
     setHighlightedResultIndex(-1)
+  }
+
+  const handleDeleteNotification = (notification: MemberNotification) => {
+    if (deletingNotificationIds.includes(notification.id)) {
+      return
+    }
+
+    setDeletingNotificationIds((previous) => [...previous, notification.id])
+    const timer = window.setTimeout(() => {
+      onDeleteNotification?.(notification)
+      setDeletingNotificationIds((previous) => previous.filter((id) => id !== notification.id))
+      setNotificationToastMessage('Notificação excluída.')
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current)
+      }
+      toastTimerRef.current = window.setTimeout(() => {
+        setNotificationToastMessage(null)
+      }, 1800)
+      deleteTimersRef.current = deleteTimersRef.current.filter((currentTimer) => currentTimer !== timer)
+    }, 180)
+    deleteTimersRef.current.push(timer)
   }
 
   return (
@@ -259,6 +296,12 @@ export default function Header({
                 )}
               </div>
             )}
+
+            {searchOpeningLabel && (
+              <p className="pointer-events-none absolute -bottom-5 left-1 text-[11px] font-medium text-[#d1d1d1]">
+                {searchOpeningLabel}
+              </p>
+            )}
           </div>
         </div>
 
@@ -323,10 +366,12 @@ export default function Header({
                   {notifications.length === 0 ? (
                     <p className="px-2 py-2 text-xs text-[#9a9a9a]">Sem notificações novas.</p>
                   ) : (
-                    notifications.map((notification) => (
+                    notifications.map((notification) => {
+                      const isDeleting = deletingNotificationIds.includes(notification.id)
+                      return (
                       <div
                         key={notification.id}
-                        className={`flex items-start gap-1 rounded-[6px] px-1 py-1 ${notification.isRead ? 'hover:bg-white/5' : 'bg-[#ff0068]/12 hover:bg-[#ff0068]/18'}`}
+                        className={`flex items-start gap-1 rounded-[6px] px-1 py-1 transition-all duration-200 ease-out ${notification.isRead ? 'hover:bg-white/5' : 'bg-[#ff0068]/12 hover:bg-[#ff0068]/18'} ${isDeleting ? '-translate-x-2 scale-[0.98] opacity-0' : 'translate-x-0 scale-100 opacity-100'}`}
                       >
                         <button
                           type="button"
@@ -334,7 +379,8 @@ export default function Header({
                             onOpenNotification?.(notification)
                             setIsNotificationsOpen(false)
                           }}
-                          className="flex-1 rounded-[6px] px-1 py-1 text-left"
+                          disabled={isDeleting}
+                          className="flex-1 rounded-[6px] px-1 py-1 text-left disabled:cursor-not-allowed"
                         >
                           <div className="flex items-center gap-1.5">
                             {!notification.isRead && <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />}
@@ -344,14 +390,15 @@ export default function Header({
                         </button>
                         <button
                           type="button"
-                          onClick={() => onDeleteNotification?.(notification)}
-                          className="mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-[#a9a9a9] hover:bg-white/10 hover:text-white"
+                          onClick={() => handleDeleteNotification(notification)}
+                          disabled={isDeleting}
+                          className="mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-[#a9a9a9] hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           aria-label="Excluir notificação"
                         >
                           <Trash2 className="size-3.5" />
                         </button>
                       </div>
-                    ))
+                    )})
                   )}
                 </div>
               </div>
@@ -395,6 +442,11 @@ export default function Header({
           </div>
         </div>
       </div>
+      {notificationToastMessage && (
+        <div className="pointer-events-none fixed right-6 top-20 z-[90] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
+          {notificationToastMessage}
+        </div>
+      )}
     </header>
   )
 }

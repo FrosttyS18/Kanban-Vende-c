@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Bold, ChevronDown, Italic, List, ListOrdered } from 'lucide-react'
 
 type DescriptionEditorProps = {
@@ -16,8 +16,6 @@ function escapeHtml(value: string): string {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
 }
 
 function looksLikeHtml(value: string): boolean {
@@ -47,7 +45,7 @@ function toHtml(value: string): string {
     return ''
   }
 
-  if (!looksLikeHtml(value) && /&amp;|&nbsp;/.test(value)) {
+  if (!looksLikeHtml(value) && /&(amp|nbsp|quot|#39|lt|gt);/.test(value)) {
     return escapeHtml(decodeHtmlEntities(value)).replaceAll('\n', '<br>')
   }
 
@@ -334,3 +332,4 @@ export default function DescriptionEditor({
     </div>
   )
 }
+

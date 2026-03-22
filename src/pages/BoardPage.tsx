@@ -188,7 +188,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [currentUserRole, setCurrentUserRole] = useState<GlobalUserRole>('member')
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
+  const [pendingSearchOpen, setPendingSearchOpen] = useState<{ boardId: string; cardId: string; cardTitle: string } | null>(null)
   const lastOpenCardKeyRef = useRef('')
+  const searchOpenFallbackTriggeredRef = useRef<string | null>(null)
+  const optimisticReadNotificationIdsRef = useRef<Set<string>>(new Set())
+  const optimisticDeletedNotificationIdsRef = useRef<Set<string>>(new Set())
 
   const selectedBoardId = useMemo(() => {
     if (urlState.kind === 'board') {
@@ -245,8 +249,59 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         boardId: searchScope === 'board' ? selectedBoardId : undefined,
         limit: 10
       }),
-    enabled: searchEnabled
+    enabled: searchEnabled,
+    placeholderData: (previous) => previous
   })
+
+  useEffect(() => {
+    if (!pendingSearchOpen) {
+      searchOpenFallbackTriggeredRef.current = null
+      return
+    }
+
+    const pendingKey = `${pendingSearchOpen.boardId}:${pendingSearchOpen.cardId}`
+    if (searchOpenFallbackTriggeredRef.current === pendingKey) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setPendingSearchOpen((current) => {
+        if (!current || `${current.boardId}:${current.cardId}` !== pendingKey) {
+          return current
+        }
+        searchOpenFallbackTriggeredRef.current = pendingKey
+        setBoardReloadKey((previous) => previous + 1)
+        return current
+      })
+    }, 1800)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [pendingSearchOpen])
+
+  useEffect(() => {
+    if (!pendingSearchOpen) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      setPendingSearchOpen((current) => {
+        if (!current) {
+          return current
+        }
+        if (current.boardId !== pendingSearchOpen.boardId || current.cardId !== pendingSearchOpen.cardId) {
+          return current
+        }
+        searchOpenFallbackTriggeredRef.current = null
+        return null
+      })
+    }, 12000)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [pendingSearchOpen])
 
   const triggerCreateBoard = () => {
     setCreateBoardSignal((previous) => previous + 1)
@@ -271,6 +326,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     setFallbackBoardId('')
     setPendingShareToken(null)
     setShareJoinError(null)
+    setPendingSearchOpen(null)
     setOpenCardRequest(null)
     setCloseCardModalSignal((previous) => previous + 1)
     updateHistory('/', true)
@@ -333,6 +389,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }
 
   const handleSelectBoard = (boardId: string) => {
+    setPendingSearchOpen(null)
+    searchOpenFallbackTriggeredRef.current = null
     if (boardId === selectedBoardId && urlState.kind === 'board' && !urlState.cardId) {
       return
     }
@@ -400,7 +458,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     }
 
     void runMutation(markNotificationsReadMutation, currentMemberId, {
+      onSuccess: () => {
+        optimisticReadNotificationIdsRef.current.clear()
+      },
       onError: () => {
+        optimisticReadNotificationIdsRef.current.clear()
         setBoardReloadKey((previous) => previous + 1)
       }
     })
@@ -418,7 +480,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         notificationId
       },
       {
+        onSuccess: () => {
+          optimisticReadNotificationIdsRef.current.delete(notificationId)
+        },
         onError: () => {
+          optimisticReadNotificationIdsRef.current.delete(notificationId)
           setBoardReloadKey((previous) => previous + 1)
         }
       }
@@ -437,7 +503,11 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         notificationId
       },
       {
+        onSuccess: () => {
+          optimisticDeletedNotificationIdsRef.current.delete(notificationId)
+        },
         onError: () => {
+          optimisticDeletedNotificationIdsRef.current.delete(notificationId)
           setBoardReloadKey((previous) => previous + 1)
         }
       }
@@ -452,12 +522,25 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     notifications: MemberNotification[]
     unreadNotificationsCount: number
   }) => {
+    const mergedNotifications = meta.notifications
+      .filter((notification) => !optimisticDeletedNotificationIdsRef.current.has(notification.id))
+      .map((notification) => (
+        optimisticReadNotificationIdsRef.current.has(notification.id)
+          ? { ...notification, isRead: true }
+          : notification
+      ))
+
+    const mergedUnreadCount = mergedNotifications.reduce(
+      (total, notification) => (notification.isRead ? total : total + 1),
+      0
+    )
+
     setBoardMetaBoards((previous) => (areBoardsEquivalent(previous, meta.boards) ? previous : meta.boards))
     setFallbackBoardId((previous) => (previous === meta.currentBoardId ? previous : meta.currentBoardId))
     setCurrentMemberId((previous) => (previous === meta.currentMemberId ? previous : meta.currentMemberId))
     setCurrentUserRole((previous) => (previous === meta.currentUserRole ? previous : meta.currentUserRole))
-    setProfileNotifications((previous) => (areNotificationsEquivalent(previous, meta.notifications) ? previous : meta.notifications))
-    setUnreadNotificationsCount((previous) => (previous === meta.unreadNotificationsCount ? previous : meta.unreadNotificationsCount))
+    setProfileNotifications((previous) => (areNotificationsEquivalent(previous, mergedNotifications) ? previous : mergedNotifications))
+    setUnreadNotificationsCount((previous) => (previous === mergedUnreadCount ? previous : mergedUnreadCount))
 
     if (!meta.currentBoardId) {
       return
@@ -587,7 +670,13 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           searchResults={searchEnabled ? searchQueryState.data ?? [] : []}
           searchLoading={searchEnabled && searchQueryState.isLoading}
           searchError={searchEnabled ? searchQueryState.error instanceof Error ? searchQueryState.error.message : null : null}
+          searchOpeningLabel={pendingSearchOpen ? `Abrindo card: ${pendingSearchOpen.cardTitle}` : null}
           onSelectSearchResult={(result) => {
+            setPendingSearchOpen({
+              boardId: result.boardId,
+              cardId: result.cardId,
+              cardTitle: result.cardTitle
+            })
             setFallbackBoardId(result.boardId)
             navigateToBoard(result.boardId, { cardId: result.cardId })
           }}
@@ -602,12 +691,18 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             if (!currentMemberId) {
               return
             }
-            setProfileNotifications((previous) => previous.map((notification) => ({ ...notification, isRead: true })))
+            setProfileNotifications((previous) => {
+              previous.forEach((notification) => {
+                optimisticReadNotificationIdsRef.current.add(notification.id)
+              })
+              return previous.map((notification) => ({ ...notification, isRead: true }))
+            })
             setUnreadNotificationsCount(0)
             syncMarkNotificationsRead()
           }}
           onOpenNotification={(notification) => {
             if (!notification.isRead) {
+              optimisticReadNotificationIdsRef.current.add(notification.id)
               setProfileNotifications((previous) => previous.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)))
               setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
 
@@ -618,6 +713,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             navigateToBoard(notification.boardId, { cardId: notification.cardId || null })
           }}
           onDeleteNotification={(notification) => {
+            optimisticDeletedNotificationIdsRef.current.add(notification.id)
+            optimisticReadNotificationIdsRef.current.delete(notification.id)
             setProfileNotifications((previous) => previous.filter((item) => item.id !== notification.id))
             if (!notification.isRead) {
               setUnreadNotificationsCount((previous) => Math.max(0, previous - 1))
@@ -658,7 +755,6 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
 
         <Board
           key={boardReloadKey}
-          searchQuery={searchQuery}
           createBoardSignal={createBoardSignal}
           shareBoardSignal={shareBoardSignal}
           openCardRequest={openCardRequest}
@@ -672,9 +768,21 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
             void queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
           }}
           onCardOpen={(boardId, cardId) => {
+            setPendingSearchOpen((current) => {
+              if (!current) {
+                return current
+              }
+              if (current.boardId !== boardId || current.cardId !== cardId) {
+                return current
+              }
+              searchOpenFallbackTriggeredRef.current = null
+              return null
+            })
             navigateToBoard(boardId, { cardId })
           }}
           onCardClose={(boardId) => {
+            searchOpenFallbackTriggeredRef.current = null
+            setPendingSearchOpen(null)
             navigateToBoard(boardId, { replace: true })
           }}
           onBoardMetaChange={handleBoardMetaChange}

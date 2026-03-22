@@ -50,7 +50,6 @@ import {
 } from '@/services/boardApi'
 
 type BoardProps = {
-  searchQuery: string
   createBoardSignal: number
   shareBoardSignal: number
   openCardRequest?: { boardId: string; cardId: string; token: number } | null
@@ -193,7 +192,6 @@ function getLocalBoardSyncStamp(snapshot: BoardStore, boardId: string): number {
 }
 
 export default function Board({
-  searchQuery,
   createBoardSignal,
   shareBoardSignal,
   openCardRequest,
@@ -882,26 +880,6 @@ export default function Board({
     }
   }, [activeBoardId, loadStore, realtimeSubscriptionVersion, showOperationError, store.currentMemberId])
 
-  const filteredCards = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-
-    return currentCards.filter((card) => {
-      if (!query) {
-        return true
-      }
-
-      const inTitle = card.title.toLowerCase().includes(query)
-      const inDescription = card.description.toLowerCase().includes(query)
-      const inLinks = card.links.some((link) => link.title.toLowerCase().includes(query) || link.url.toLowerCase().includes(query))
-      const inLabels = card.labels.some((label) => label.text.toLowerCase().includes(query))
-      const inChecklist = card.checklists.some((checklist) =>
-        checklist.items.some((item) => item.content.toLowerCase().includes(query))
-      )
-
-      return inTitle || inDescription || inLinks || inLabels || inChecklist
-    })
-  }, [currentCards, searchQuery])
-
   const cardsByList = useMemo(() => {
     const map = new Map<string, CardData[]>()
 
@@ -909,7 +887,7 @@ export default function Board({
       map.set(column.id, [])
     })
 
-    filteredCards.forEach((card) => {
+    currentCards.forEach((card) => {
       const listCards = map.get(card.listId)
       if (listCards) {
         listCards.push(card)
@@ -917,7 +895,7 @@ export default function Board({
     })
 
     return map
-  }, [currentColumns, filteredCards])
+  }, [currentColumns, currentCards])
 
   const availableLabels = store.labelsByBoard[activeBoardId] ?? []
   const shareSettings = store.shareByBoard[activeBoardId]
@@ -1851,7 +1829,6 @@ export default function Board({
                   openCardRequest={openCardRequest}
                   onCardOpen={(cardId) => onCardOpen?.(activeBoardId, cardId)}
                   onCardClose={() => onCardClose?.(activeBoardId)}
-                  searchActive={searchQuery.trim().length > 0}
                   operationErrorMessage={operationError}
                 />
               ))}

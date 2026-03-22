@@ -30,7 +30,6 @@ type Props = {
   openCardRequest?: { boardId: string; cardId: string; token: number } | null
   onCardOpen: (cardId: string) => void
   onCardClose: () => void
-  searchActive?: boolean
   isOverlay?: boolean
   operationErrorMessage?: string | null
 }
@@ -92,7 +91,6 @@ export default function Column({
   openCardRequest,
   onCardOpen,
   onCardClose,
-  searchActive = false,
   isOverlay = false,
   operationErrorMessage
 }: Props) {
@@ -284,10 +282,6 @@ export default function Column({
             />
           ))}
         </SortableContext>
-
-        {!isOverlay && cards.length === 0 && searchActive && (
-          <div className="rounded-md border border-dashed border-white/20 p-3 text-xs text-[#d1d1d1]">Nenhum card corresponde ao filtro.</div>
-        )}
 
         {addingCardMode === 'bottom' && <AddCardInput value={newCardTitle} onChange={setNewCardTitle} onAdd={saveCard} onCancel={closeAddCard} />}
       </div>
