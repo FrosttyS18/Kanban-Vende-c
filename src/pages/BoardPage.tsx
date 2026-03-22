@@ -106,6 +106,61 @@ function updateHistory(url: string, replace: boolean): void {
   window.history.pushState({}, document.title, url)
 }
 
+function areBoardsEquivalent(previous: BoardData[], next: BoardData[]): boolean {
+  if (previous === next) {
+    return true
+  }
+
+  if (previous.length !== next.length) {
+    return false
+  }
+
+  for (let index = 0; index < previous.length; index += 1) {
+    const previousItem = previous[index]
+    const nextItem = next[index]
+    if (
+      previousItem.id !== nextItem.id ||
+      previousItem.title !== nextItem.title ||
+      previousItem.color !== nextItem.color ||
+      previousItem.ownerMemberId !== nextItem.ownerMemberId ||
+      previousItem.updatedAt !== nextItem.updatedAt
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function areNotificationsEquivalent(previous: MemberNotification[], next: MemberNotification[]): boolean {
+  if (previous === next) {
+    return true
+  }
+
+  if (previous.length !== next.length) {
+    return false
+  }
+
+  for (let index = 0; index < previous.length; index += 1) {
+    const previousItem = previous[index]
+    const nextItem = next[index]
+    if (
+      previousItem.id !== nextItem.id ||
+      previousItem.boardId !== nextItem.boardId ||
+      previousItem.cardId !== nextItem.cardId ||
+      previousItem.isRead !== nextItem.isRead ||
+      previousItem.type !== nextItem.type ||
+      previousItem.title !== nextItem.title ||
+      previousItem.message !== nextItem.message ||
+      previousItem.createdAt !== nextItem.createdAt
+    ) {
+      return false
+    }
+  }
+
+  return true
+}
+
 export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false }: BoardPageProps) {
   const queryClient = useQueryClient()
   const [urlState, setUrlState] = useState<UrlState>(() => parseUrlState())
@@ -389,6 +444,43 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     )
   }
 
+  const handleBoardMetaChange = useCallback((meta: {
+    boards: BoardData[]
+    currentBoardId: string
+    currentMemberId: string
+    currentUserRole: GlobalUserRole
+    notifications: MemberNotification[]
+    unreadNotificationsCount: number
+  }) => {
+    setBoardMetaBoards((previous) => (areBoardsEquivalent(previous, meta.boards) ? previous : meta.boards))
+    setFallbackBoardId((previous) => (previous === meta.currentBoardId ? previous : meta.currentBoardId))
+    setCurrentMemberId((previous) => (previous === meta.currentMemberId ? previous : meta.currentMemberId))
+    setCurrentUserRole((previous) => (previous === meta.currentUserRole ? previous : meta.currentUserRole))
+    setProfileNotifications((previous) => (areNotificationsEquivalent(previous, meta.notifications) ? previous : meta.notifications))
+    setUnreadNotificationsCount((previous) => (previous === meta.unreadNotificationsCount ? previous : meta.unreadNotificationsCount))
+
+    if (!meta.currentBoardId) {
+      return
+    }
+
+    if (urlState.kind === 'root') {
+      navigateToBoard(meta.currentBoardId, { replace: true })
+      return
+    }
+
+    if (urlState.kind === 'board') {
+      const selectedBoardFromCatalog = boardCatalog.find((board) => board.id === urlState.boardId)
+      if (selectedBoardFromCatalog && !selectedBoardFromCatalog.hasAccess) {
+        return
+      }
+
+      const boardExists = meta.boards.some((board) => board.id === urlState.boardId)
+      if (!boardExists && !selectedBoardFromCatalog) {
+        navigateToBoard(meta.currentBoardId, { replace: true })
+      }
+    }
+  }, [boardCatalog, navigateToBoard, urlState])
+
   useEffect(() => {
     const handlePopState = () => {
       const parsed = parseUrlState()
@@ -585,35 +677,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           onCardClose={(boardId) => {
             navigateToBoard(boardId, { replace: true })
           }}
-          onBoardMetaChange={(meta) => {
-            setBoardMetaBoards(meta.boards)
-            setFallbackBoardId(meta.currentBoardId)
-            setCurrentMemberId(meta.currentMemberId)
-            setCurrentUserRole(meta.currentUserRole)
-            setProfileNotifications(meta.notifications)
-            setUnreadNotificationsCount(meta.unreadNotificationsCount)
-
-            if (!meta.currentBoardId) {
-              return
-            }
-
-            if (urlState.kind === 'root') {
-              navigateToBoard(meta.currentBoardId, { replace: true })
-              return
-            }
-
-            if (urlState.kind === 'board') {
-              const selectedBoardFromCatalog = boardCatalog.find((board) => board.id === urlState.boardId)
-              if (selectedBoardFromCatalog && !selectedBoardFromCatalog.hasAccess) {
-                return
-              }
-
-              const boardExists = meta.boards.some((board) => board.id === urlState.boardId)
-              if (!boardExists && !selectedBoardFromCatalog) {
-                navigateToBoard(meta.currentBoardId, { replace: true })
-              }
-            }
-          }}
+          onBoardMetaChange={handleBoardMetaChange}
         />
       </main>
     </div>

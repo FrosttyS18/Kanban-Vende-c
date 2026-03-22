@@ -590,16 +590,21 @@ export default function Board({
     [profileNotifications]
   )
 
+  const topProfileNotifications = useMemo(
+    () => profileNotifications.slice(0, 8),
+    [profileNotifications]
+  )
+
   useEffect(() => {
     onBoardMetaChange?.({
       boards: store.boards,
       currentBoardId: activeBoardId,
       currentMemberId: store.currentMemberId,
       currentUserRole: store.currentUserRole,
-      notifications: profileNotifications.slice(0, 8),
+      notifications: topProfileNotifications,
       unreadNotificationsCount
     })
-  }, [activeBoardId, onBoardMetaChange, profileNotifications, store.boards, store.currentMemberId, store.currentUserRole, unreadNotificationsCount])
+  }, [activeBoardId, onBoardMetaChange, store.boards, store.currentMemberId, store.currentUserRole, topProfileNotifications, unreadNotificationsCount])
 
   const currentBoard = useMemo(
     () => store.boards.find((board) => board.id === activeBoardId) ?? null,

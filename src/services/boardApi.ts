@@ -171,6 +171,9 @@ const CURRENT_BOARD_STORAGE_KEY = 'kanban_vndc_current_board'
 const MEMBER_COLORS = ['#ff0068', '#ff2d55', '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7']
 const STORE_VERSION = 3
 const PROFILE_CACHE_TTL_MS = 45000
+const CURRENT_USER_CACHE_TTL_MS = 15000
+
+type CurrentUser = { id: string; email: string; fullName: string | null; avatarUrl: string | null }
 
 let currentProfileCache:
   | {
@@ -185,6 +188,13 @@ let currentProfileInFlight:
       promise: Promise<CurrentProfile>
     }
   | null = null
+let currentUserCache:
+  | {
+      expiresAt: number
+      value: CurrentUser
+    }
+  | null = null
+let currentUserInFlight: Promise<CurrentUser> | null = null
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -271,25 +281,57 @@ export async function setLastBoardIdRemote(boardId: string | null): Promise<void
   }
 }
 
-async function getCurrentUser(): Promise<{ id: string; email: string; fullName: string | null; avatarUrl: string | null }> {
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user?.id || !data.user.email) {
-    throw new Error('Sessao invalida.')
+async function getCurrentUser(options?: { forceRefresh?: boolean }): Promise<CurrentUser> {
+  const forceRefresh = options?.forceRefresh === true
+  const now = Date.now()
+
+  if (!forceRefresh && currentUserCache && currentUserCache.expiresAt > now) {
+    return { ...currentUserCache.value }
   }
-  const fullNameRaw = data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? null
-  const avatarRaw = data.user.user_metadata?.avatar_url ?? null
-  return {
-    id: data.user.id,
-    email: data.user.email.toLowerCase(),
-    fullName: typeof fullNameRaw === 'string' ? fullNameRaw : null,
-    avatarUrl: typeof avatarRaw === 'string' ? avatarRaw : null
+
+  if (!forceRefresh && currentUserInFlight) {
+    return currentUserInFlight
+  }
+
+  const fetchPromise = (async (): Promise<CurrentUser> => {
+    const { data, error } = await supabase.auth.getUser()
+    if (error || !data.user?.id || !data.user.email) {
+      currentUserCache = null
+      throw new Error('Sessao invalida.')
+    }
+
+    const fullNameRaw = data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? null
+    const avatarRaw = data.user.user_metadata?.avatar_url ?? null
+    const currentUser: CurrentUser = {
+      id: data.user.id,
+      email: data.user.email.toLowerCase(),
+      fullName: typeof fullNameRaw === 'string' ? fullNameRaw : null,
+      avatarUrl: typeof avatarRaw === 'string' ? avatarRaw : null
+    }
+
+    currentUserCache = {
+      expiresAt: Date.now() + CURRENT_USER_CACHE_TTL_MS,
+      value: currentUser
+    }
+
+    return { ...currentUser }
+  })()
+
+  currentUserInFlight = fetchPromise
+
+  try {
+    return await fetchPromise
+  } finally {
+    if (currentUserInFlight === fetchPromise) {
+      currentUserInFlight = null
+    }
   }
 }
 
 async function ensureCurrentProfile(options?: { forceRefresh?: boolean }): Promise<CurrentProfile> {
   const forceRefresh = options?.forceRefresh === true
   const now = Date.now()
-  const user = await getCurrentUser()
+  const user = await getCurrentUser({ forceRefresh })
 
   if (
     !forceRefresh &&
@@ -837,7 +879,7 @@ function getSearchCacheKey(input: {
 
 export async function loadBoardStoreFromRemote(
   selectedBoardId?: string,
-  options?: { forceRefresh?: boolean; bypassInFlight?: boolean }
+  options?: { forceRefresh?: boolean; bypassInFlight?: boolean; forceProfileRefresh?: boolean }
 ): Promise<BoardStore> {
   const cacheKey = getStoreCacheKey(selectedBoardId)
   const now = Date.now()
@@ -860,7 +902,7 @@ export async function loadBoardStoreFromRemote(
       return cloneBoardStore(inFlightStore)
     }
 
-    const promise = fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: forceRefresh })
+    const promise = fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: options?.forceProfileRefresh === true })
     boardStoreInFlightByKey.set(cacheKey, promise)
 
     try {
@@ -875,7 +917,7 @@ export async function loadBoardStoreFromRemote(
     }
   }
 
-  const result = await fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: forceRefresh })
+  const result = await fetchBoardStoreFromRemote(selectedBoardId, { forceProfileRefresh: options?.forceProfileRefresh === true })
   boardStoreCacheByKey.set(cacheKey, {
     expiresAt: Date.now() + BOARD_STORE_CACHE_TTL_MS,
     value: cloneBoardStore(result)
