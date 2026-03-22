@@ -443,7 +443,7 @@ export default function Header({
         </div>
       </div>
       {notificationToastMessage && (
-        <div className="pointer-events-none fixed right-6 top-20 z-[90] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
+        <div className="pointer-events-none fixed bottom-6 right-6 z-[90] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
           {notificationToastMessage}
         </div>
       )}

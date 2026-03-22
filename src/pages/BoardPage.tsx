@@ -458,9 +458,6 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
     }
 
     void runMutation(markNotificationsReadMutation, currentMemberId, {
-      onSuccess: () => {
-        optimisticReadNotificationIdsRef.current.clear()
-      },
       onError: () => {
         optimisticReadNotificationIdsRef.current.clear()
         setBoardReloadKey((previous) => previous + 1)
@@ -480,9 +477,6 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         notificationId
       },
       {
-        onSuccess: () => {
-          optimisticReadNotificationIdsRef.current.delete(notificationId)
-        },
         onError: () => {
           optimisticReadNotificationIdsRef.current.delete(notificationId)
           setBoardReloadKey((previous) => previous + 1)
@@ -529,6 +523,29 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
           ? { ...notification, isRead: true }
           : notification
       ))
+
+    if (optimisticReadNotificationIdsRef.current.size > 0) {
+      const stillPending = new Set<string>()
+      const remoteById = new Map(meta.notifications.map((notification) => [notification.id, notification]))
+
+      optimisticReadNotificationIdsRef.current.forEach((notificationId) => {
+        if (optimisticDeletedNotificationIdsRef.current.has(notificationId)) {
+          return
+        }
+
+        const remoteNotification = remoteById.get(notificationId)
+        if (!remoteNotification) {
+          stillPending.add(notificationId)
+          return
+        }
+
+        if (!remoteNotification.isRead) {
+          stillPending.add(notificationId)
+        }
+      })
+
+      optimisticReadNotificationIdsRef.current = stillPending
+    }
 
     const mergedUnreadCount = mergedNotifications.reduce(
       (total, notification) => (notification.isRead ? total : total + 1),
