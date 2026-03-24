@@ -1551,7 +1551,7 @@ export default function CardModal({
             />
 
             {showMembersMenu && (
-              <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-[#3f3f3f] bg-[#303134] px-2">
+              <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-[#3f3f3f] bg-[#303134] px-2">
                 <div className="grid gap-0">
                   {members.map((member) => {
                     const selected = cardState.memberIds.includes(member.id)

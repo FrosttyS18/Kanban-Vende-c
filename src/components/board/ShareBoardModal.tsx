@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Copy, Link2, Mail, Trash2, X } from 'lucide-react'
+import { ChevronDown, Copy, Link2, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { type BoardData, type BoardShareSettings, type Member, type SharePermission } from '@/types'
@@ -133,58 +133,8 @@ export default function ShareBoardModal({ isOpen, board, members, currentMemberI
 
         <div className="flex-1 overflow-y-auto px-6">
           <section className="border-t border-white/10 pt-5">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2">
               <h3 className="text-[28px] font-semibold text-white">Pessoas com acesso</h3>
-              <div className="flex items-center gap-1 text-[#d1d1d1]">
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/10"
-                  aria-label="Copiar resumo de acessos"
-                  onClick={async () => {
-                    const lines = shareSettings.members
-                      .map((entry) => {
-                        const member = members.find((item) => item.id === entry.memberId)
-                        if (!member) {
-                          return ''
-                        }
-                        return `${member.name} <${member.email}> - ${entry.permission === 'edit' ? 'Editar' : 'Visualizar'}`
-                      })
-                      .filter(Boolean)
-                      .join('\n')
-
-                    if (!lines) {
-                      return
-                    }
-
-                    try {
-                      await navigator.clipboard.writeText(lines)
-                    } catch {
-                      setCopied(false)
-                    }
-                  }}
-                >
-                  <Copy className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/10"
-                  aria-label="Enviar convite por e-mail"
-                  onClick={() => {
-                    const emails = shareSettings.members
-                      .map((entry) => members.find((item) => item.id === entry.memberId)?.email ?? '')
-                      .filter(Boolean)
-                      .join(';')
-
-                    if (!emails || typeof window === 'undefined') {
-                      return
-                    }
-
-                    window.location.href = `mailto:${emails}`
-                  }}
-                >
-                  <Mail className="size-4" />
-                </button>
-              </div>
             </div>
             <div className="space-y-1.5">
               {shareSettings.members.map((sharedMember) => {
@@ -294,7 +244,43 @@ export default function ShareBoardModal({ isOpen, board, members, currentMemberI
         </div>
 
         <div className="shrink-0 border-t border-white/10 px-6 py-4">
-          <div className="flex items-center justify-between">
+          <section className="pt-4">
+            <h3 className="text-xl font-semibold text-white">Acesso geral</h3>
+            <div className="mt-3 flex flex-col gap-3 p-1">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="inline-flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/40">
+                    <Link2 className="size-4 text-[#d1d1d1]" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">{shareSettings.allowLinkAccess ? 'Qualquer pessoa com o link' : 'Restrito'}</p>
+                    <p className="truncate text-sm text-[#bcbcbc]">
+                      {shareSettings.allowLinkAccess ? 'Pessoas com o link podem editar este board.' : 'Somente pessoas adicionadas podem abrir o board.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="min-w-46">
+                  <CustomSelect
+                    value={shareSettings.allowLinkAccess ? 'link' : 'restricted'}
+                    onChange={(nextValue) => {
+                      if (!canManageShare) {
+                        return
+                      }
+                      onChange({ ...shareSettings, allowLinkAccess: nextValue === 'link' })
+                    }}
+                    options={[
+                      { value: 'restricted', label: 'Restrito' },
+                      { value: 'link', label: 'Qualquer pessoa com o link' }
+                    ]}
+                    buttonClassName={`h-9 pl-3 pr-10 ${!canManageShare ? 'pointer-events-none opacity-60' : ''}`}
+                  />
+                </div>
+              </div>
+              <Input value={shareLink} readOnly className="h-10 border-white/20 bg-black text-sm text-white" />
+            </div>
+          </section>
+
+          <div className="mt-4 flex items-center justify-between">
             <Button
               variant="outline"
               className="h-10 border-white/20 bg-transparent text-white hover:bg-white/10"
