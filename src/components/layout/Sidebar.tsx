@@ -373,9 +373,9 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-[width,border-color] duration-500 ease-out ${
+        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-[width,min-width,border-color] duration-500 ease-in-out ${
           mobileOpen
-            ? 'fixed inset-0 z-120 flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
+            ? 'fixed inset-0 z-120 flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25 lg:min-w-63.25'
             : isCollapsed
               ? 'hidden h-full lg:flex lg:w-0 lg:min-w-0 lg:overflow-visible lg:border-r-transparent'
               : 'hidden h-full lg:flex lg:w-63.25 lg:min-w-63.25 lg:flex-col'
@@ -383,24 +383,26 @@ export default function Sidebar({
       >
 
       {!mobileOpen && (
-        <div className="absolute -right-[1px] top-1/2 z-50 flex h-20 w-5 -translate-y-1/2 translate-x-full items-center justify-center">
+        <div className="absolute -right-px top-1/2 z-50 flex h-28 w-7 -translate-y-1/2 translate-x-full items-center justify-center">
           <button
             type="button"
             onClick={onToggleDesktopCollapsed}
             className="group relative flex h-full w-full items-center justify-center text-[#d1d1d1] transition-colors hover:text-white focus:outline-none"
             aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
           >
-            <svg width="20" height="80" viewBox="0 0 20 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute inset-0 h-full w-full text-[#1e1e1e]">
-              <path d="M0 0 L0.5 0 C0.5 24, 19.5 20, 19.5 40 C19.5 60, 0.5 56, 0.5 80 L0 80 Z" fill="currentColor" />
-              <path d="M0.5 0 C0.5 24, 19.5 20, 19.5 40 C19.5 60, 0.5 56, 0.5 80" fill="none" stroke="#3d3d3d" strokeWidth="1" />
+            <svg width="28" height="112" viewBox="0 0 28 112" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute inset-0 h-full w-full text-[#1e1e1e]">
+              <path d="M0 0 L0.5 0 C0.5 34, 27.5 28, 27.5 56 C27.5 84, 0.5 78, 0.5 112 L0 112 Z" fill="currentColor" />
+              <path d="M0.5 0 C0.5 34, 27.5 28, 27.5 56 C27.5 84, 0.5 78, 0.5 112" fill="none" stroke="#3d3d3d" strokeWidth="1" />
             </svg>
-            <ChevronRight className={`relative z-10 size-3.5 translate-x-[1px] transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`} />
+            <ChevronRight className={`relative z-10 size-4 translate-x-0.5 transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`} />
           </button>
         </div>
       )}
-      {(!isCollapsed || mobileOpen) && (
-      <div className={`min-h-0 flex-1 transition-all duration-300 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'} translate-x-0 opacity-100`}>
-        {mobileOpen && (
+
+      <div className="flex h-full w-full flex-col overflow-hidden">
+        <div className={`flex h-full flex-col transition-opacity duration-500 ease-in-out ${mobileOpen ? 'w-full' : 'w-63.25'} ${isCollapsed && !mobileOpen ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+          <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'}`}>
+            {mobileOpen && (
           <>
             <div className="mb-5 flex items-center gap-4">
               <button
@@ -457,34 +459,31 @@ export default function Sidebar({
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[18px] font-semibold text-white">
             <SquareKanban className="size-4 text-[#d1d1d1]" />
-            {!isCollapsed && 'Boards'}
+            Boards
           </div>
-          {!isCollapsed && (
-            <button
-              type="button"
-              onClick={() => {
-                onCreateBoard()
-                if (mobileOpen) {
-                  closeMobileDrawer()
-                }
-              }}
-              className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
-              aria-label="Criar board"
-              disabled={!canCreateBoard}
-              title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
-            >
-              <Plus className="size-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              onCreateBoard()
+              if (mobileOpen) {
+                closeMobileDrawer()
+              }
+            }}
+            className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
+            aria-label="Criar board"
+            disabled={!canCreateBoard}
+            title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
+          >
+            <Plus className="size-4" />
+          </button>
         </div>
         <div className="mb-4 border-b border-[#3d3d3d]" />
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={boards.map((board) => board.id)} strategy={verticalListSortingStrategy}>
-            {!isCollapsed && (
-              <div className="space-y-4">
-                {boards.map((board) => (
-                  <SortableBoardButton
+            <div className="space-y-4">
+              {boards.map((board) => (
+                <SortableBoardButton
                     key={board.id}
                     board={board}
                     active={board.id === activeBoardId}
@@ -506,11 +505,9 @@ export default function Sidebar({
                   />
                 ))}
               </div>
-            )}
           </SortableContext>
         </DndContext>
       </div>
-      )}
 
       {mobileOpen && onMobileShareBoard && (
         <button
@@ -526,8 +523,7 @@ export default function Sidebar({
         </button>
       )}
 
-      {(!isCollapsed || mobileOpen) && (
-      <div className={`mt-auto border-t border-[#3d3d3d] transition-all duration-300 ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'} translate-x-0 opacity-100`}>
+      <div className={`mt-auto border-t border-[#3d3d3d] ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'}`}>
         <button
           type="button"
           onClick={() => {
@@ -543,7 +539,8 @@ export default function Sidebar({
           Configurações
         </button>
       </div>
-      )}
+        </div>
+      </div>
 
       {contextMenu && (
         <div ref={menuRef} style={{ top: contextMenu.top, left: contextMenu.left }} className="fixed z-80 w-44 rounded-lg border border-white/10 bg-[#242528] p-1.5 shadow-xl">
