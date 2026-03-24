@@ -384,13 +384,11 @@ export default function Sidebar({
 
       {!mobileOpen && (
         <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-1/2">
-          <div className="relative flex h-30 w-12 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#1f2023] shadow-xl">
-            <div className="absolute -left-5 h-24 w-12 rounded-full border border-white/10 bg-[#1a1b1f]" />
-            <div className="absolute -left-3 h-20 w-8 rounded-full border border-white/6 bg-[#191a1e]" />
+          <div className="relative flex h-28 w-10 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
             <button
               type="button"
               onClick={onToggleDesktopCollapsed}
-              className="relative z-10 inline-flex size-9 items-center justify-center rounded-full text-[#f2f2f2] transition-colors duration-200 hover:bg-white/10"
+              className="inline-flex size-9 items-center justify-center rounded-full text-white transition-colors duration-200 hover:bg-white/10"
               aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
             >
               <ChevronRight className="size-5" />

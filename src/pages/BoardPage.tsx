@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
@@ -195,6 +195,9 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const searchOpenFallbackTriggeredRef = useRef<string | null>(null)
   const optimisticReadNotificationIdsRef = useRef<Set<string>>(new Set())
   const optimisticDeletedNotificationIdsRef = useRef<Set<string>>(new Set())
+  const boardLayoutStyle = {
+    '--sidebar-col': isDesktopSidebarCollapsed ? '0rem' : '15.8125rem'
+  } as CSSProperties
 
   const selectedBoardId = useMemo(() => {
     if (urlState.kind === 'board') {
@@ -715,7 +718,10 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }, [navigateToBoard, pendingShareToken, queryClient])
 
   return (
-    <div className={`grid h-screen grid-cols-1 grid-rows-[auto_1fr] bg-[#252525] lg:grid-rows-[70px_1fr] ${isDesktopSidebarCollapsed ? 'lg:grid-cols-[0px_1fr]' : 'lg:grid-cols-[253px_1fr]'}`}>
+    <div
+      className="grid h-screen grid-cols-1 grid-rows-[auto_1fr] bg-[#252525] lg:grid-cols-[var(--sidebar-col)_1fr] lg:grid-rows-[70px_1fr]"
+      style={boardLayoutStyle}
+    >
       <div className="lg:col-span-2">
         <Header
           userEmail={userEmail}
