@@ -205,42 +205,6 @@ export default function ShareBoardModal({ isOpen, board, members, currentMemberI
               )}
             </div>
           </section>
-
-          <section className="mt-6 border-t border-white/10 pt-5">
-            <h3 className="text-xl font-semibold text-white">Acesso geral</h3>
-            <div className="mt-3 flex flex-col gap-3 p-1">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="inline-flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/40">
-                    <Link2 className="size-4 text-[#d1d1d1]" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white">{shareSettings.allowLinkAccess ? 'Qualquer pessoa com o link' : 'Restrito'}</p>
-                    <p className="truncate text-sm text-[#bcbcbc]">
-                      {shareSettings.allowLinkAccess ? 'Pessoas com o link podem editar este board.' : 'Somente pessoas adicionadas podem abrir o board.'}
-                    </p>
-                  </div>
-                </div>
-                <div className="min-w-46">
-                  <CustomSelect
-                    value={shareSettings.allowLinkAccess ? 'link' : 'restricted'}
-                    onChange={(nextValue) => {
-                      if (!canManageShare) {
-                        return
-                      }
-                      onChange({ ...shareSettings, allowLinkAccess: nextValue === 'link' })
-                    }}
-                    options={[
-                      { value: 'restricted', label: 'Restrito' },
-                      { value: 'link', label: 'Qualquer pessoa com o link' }
-                    ]}
-                    buttonClassName={`h-9 pl-3 pr-10 ${!canManageShare ? 'pointer-events-none opacity-60' : ''}`}
-                  />
-                </div>
-              </div>
-              <Input value={shareLink} readOnly className="h-10 border-white/20 bg-black text-sm text-white" />
-            </div>
-          </section>
         </div>
 
         <div className="shrink-0 border-t border-white/10 px-6 py-4">

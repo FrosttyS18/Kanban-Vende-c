@@ -375,6 +375,21 @@ export default function Sidebar({
             : 'hidden h-full lg:flex lg:flex-col'
         } ${!mobileOpen && isCollapsed ? 'lg:w-16' : ''}`}
       >
+
+      {!mobileOpen && (
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className={`absolute top-1/2 z-50 -translate-y-1/2 rounded-r-full bg-[#1e1e1e] shadow-xl transition-all duration-300 ease-out hover:bg-[#2a2a2a] ${
+            isCollapsed
+              ? '-right-3 size-8 hover:size-9'
+              : 'right-0 w-6 hover:w-8'
+          }`}
+          aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+        >
+          <ArrowLeft className={`size-3 transition-transform duration-300 ease-out ${isCollapsed ? 'rotate-180' : ''}`} />
+        </button>
+      )}
       <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : isCollapsed ? 'px-3 pb-6 pt-7' : 'px-8 pb-6 pt-7'}`}>
         {mobileOpen && (
           <>
@@ -435,7 +450,7 @@ export default function Sidebar({
             <SquareKanban className="size-4 text-[#d1d1d1]" />
             {!isCollapsed && 'Boards'}
           </div>
-          <div className="flex items-center gap-1">
+          {!isCollapsed && (
             <button
               type="button"
               onClick={() => {
@@ -451,16 +466,7 @@ export default function Sidebar({
             >
               <Plus className="size-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="text-[#d1d1d1] hover:text-white"
-              aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-              title={isCollapsed ? 'Expandir' : 'Recolher'}
-            >
-              <ArrowLeft className={`size-4 transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
+          )}
         </div>
         <div className="mb-4 border-b border-[#3d3d3d]" />
 
@@ -510,7 +516,7 @@ export default function Sidebar({
         </button>
       )}
 
-      <div className={`mt-auto border-t border-[#3d3d3d] ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'}`}>
+      <div className={`mt-auto border-t border-[#3d3d3d] ${mobileOpen ? 'px-5 py-4' : isCollapsed ? 'p-0' : 'px-8 py-5'}`}>
         <button
           type="button"
           onClick={() => {
@@ -519,11 +525,11 @@ export default function Sidebar({
               closeMobileDrawer()
             }
           }}
-          className={`flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary ${mobileOpen ? 'justify-center' : ''}`}
+          className={`flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary ${mobileOpen ? 'w-full justify-center' : isCollapsed ? 'size-10 justify-center' : ''}`}
           aria-label="Configurações"
         >
           <Settings2 className="size-4 text-[#d1d1d1]" />
-          Configurações
+          {!isCollapsed && 'Configurações'}
         </button>
       </div>
 
