@@ -170,8 +170,9 @@ const LEGACY_KEYS = ['kanban_vndc_store_v1', 'board_columns', 'board_cards', 'bo
 const CURRENT_BOARD_STORAGE_KEY = 'kanban_vndc_current_board'
 const MEMBER_COLORS = ['#ff0068', '#ff2d55', '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7']
 const STORE_VERSION = 3
-const PROFILE_CACHE_TTL_MS = 45000
-const CURRENT_USER_CACHE_TTL_MS = 15000
+const PROFILE_CACHE_TTL_MS = 300000
+const CURRENT_USER_CACHE_TTL_MS = 300000
+const PENDING_INVITE_SYNC_INTERVAL_MS = 300000
 
 type CurrentUser = { id: string; email: string; fullName: string | null; avatarUrl: string | null }
 
@@ -195,6 +196,7 @@ let currentUserCache:
     }
   | null = null
 let currentUserInFlight: Promise<CurrentUser> | null = null
+const lastPendingInviteSyncByUserId = new Map<string, number>()
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -294,17 +296,28 @@ async function getCurrentUser(options?: { forceRefresh?: boolean }): Promise<Cur
   }
 
   const fetchPromise = (async (): Promise<CurrentUser> => {
-    const { data, error } = await supabase.auth.getUser()
-    if (error || !data.user?.id || !data.user.email) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    let authUser = sessionData.session?.user ?? null
+
+    if (!authUser?.id || !authUser.email) {
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+      if (userError || !userData.user?.id || !userData.user.email) {
+        currentUserCache = null
+        throw new Error('Sessao invalida.')
+      }
+      authUser = userData.user
+    }
+
+    if (!authUser?.id || !authUser.email) {
       currentUserCache = null
       throw new Error('Sessao invalida.')
     }
 
-    const fullNameRaw = data.user.user_metadata?.full_name ?? data.user.user_metadata?.name ?? null
-    const avatarRaw = data.user.user_metadata?.avatar_url ?? null
+    const fullNameRaw = authUser.user_metadata?.full_name ?? authUser.user_metadata?.name ?? null
+    const avatarRaw = authUser.user_metadata?.avatar_url ?? null
     const currentUser: CurrentUser = {
-      id: data.user.id,
-      email: data.user.email.toLowerCase(),
+      id: authUser.id,
+      email: authUser.email.toLowerCase(),
       fullName: typeof fullNameRaw === 'string' ? fullNameRaw : null,
       avatarUrl: typeof avatarRaw === 'string' ? avatarRaw : null
     }
@@ -346,27 +359,53 @@ async function ensureCurrentProfile(options?: { forceRefresh?: boolean }): Promi
   }
 
   const fetchPromise = (async (): Promise<CurrentProfile> => {
-    const payload = {
-      id: user.id,
-      email: user.email,
-      full_name: user.fullName,
-      avatar_url: user.avatarUrl
-    }
-    const { data, error } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .upsert(payload, { onConflict: 'id' })
       .select('id,email,last_board_id,role_global')
+      .eq('id', user.id)
       .maybeSingle()
-    if (error) {
-      throw new Error(error.message)
+    if (profileError) {
+      throw new Error(profileError.message)
     }
 
-    const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
-    if (syncInvitesError) {
-      throw new Error(syncInvitesError.message)
+    let row = profileData as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
+
+    if (!row) {
+      const payload = {
+        id: user.id,
+        email: user.email,
+        full_name: user.fullName,
+        avatar_url: user.avatarUrl
+      }
+      const { data: upsertData, error: upsertError } = await supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' })
+        .select('id,email,last_board_id,role_global')
+        .maybeSingle()
+
+      if (upsertError) {
+        throw new Error(upsertError.message)
+      }
+
+      row = upsertData as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
     }
 
-    const row = data as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
+    const nowMs = Date.now()
+    const lastPendingInviteSync = lastPendingInviteSyncByUserId.get(user.id) ?? 0
+    const shouldSyncPendingInvites = forceRefresh || nowMs - lastPendingInviteSync >= PENDING_INVITE_SYNC_INTERVAL_MS
+
+    if (shouldSyncPendingInvites) {
+      const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
+      if (!syncInvitesError) {
+        lastPendingInviteSyncByUserId.set(user.id, nowMs)
+      } else if (import.meta.env.DEV) {
+        console.warn('[pending_invites_sync_failed]', {
+          userId: user.id,
+          message: syncInvitesError.message
+        })
+      }
+    }
+
     const currentProfile: CurrentProfile = {
       id: user.id,
       email: user.email,

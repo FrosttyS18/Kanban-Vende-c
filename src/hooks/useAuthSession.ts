@@ -184,7 +184,9 @@ export function useAuthSession() {
         if (!mounted || runId !== bootstrapRunIdRef.current) return
         await enqueueSessionSync(async () => {
           await applySession(currentSession)
-          await syncRateLimitStatus()
+          if (!currentSession?.user) {
+            await syncRateLimitStatus()
+          }
         })
         if (!mounted || runId !== bootstrapRunIdRef.current) {
           return
@@ -216,14 +218,9 @@ export function useAuthSession() {
       setAuthEventTick((previous) => previous + 1)
     })
 
-    const timer = window.setInterval(() => {
-      void syncRateLimitStatus()
-    }, 30000)
-
     return () => {
       mounted = false
       unsubscribe()
-      window.clearInterval(timer)
     }
   }, [applySession, enqueueSessionSync, sessionBootstrapAttempt])
 

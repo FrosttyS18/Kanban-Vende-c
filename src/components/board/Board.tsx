@@ -52,6 +52,7 @@ import {
 type BoardProps = {
   createBoardSignal: number
   shareBoardSignal: number
+  externalReloadSignal?: number
   openCardRequest?: { boardId: string; cardId: string; token: number } | null
   closeCardModalSignal?: number
   selectedBoardId?: string
@@ -102,8 +103,8 @@ const REALTIME_RELOAD_DEBOUNCE_MS = 250
 const MUTATION_ERROR_RESET_MS = 6000
 const REALTIME_RECONNECT_BASE_DELAY_MS = 500
 const REALTIME_RECONNECT_MAX_DELAY_MS = 4000
-const BOARD_SYNC_INTERACTION_THROTTLE_MS = 1200
-const BOARD_SYNC_HEARTBEAT_MS = 10000
+const BOARD_SYNC_INTERACTION_THROTTLE_MS = 5000
+const BOARD_SYNC_HEARTBEAT_MS = 45000
 const TRANSIENT_BOARD_RETRY_BASE_DELAY_MS = 600
 const TRANSIENT_BOARD_RETRY_MAX_ATTEMPTS = 3
 
@@ -155,9 +156,13 @@ function isQueryCancellationError(error: unknown): boolean {
   return (
     normalizedName === 'cancellederror' ||
     normalizedName === 'cancelederror' ||
+    normalizedName === 'aborterror' ||
     normalizedMessage === 'cancellederror' ||
     normalizedMessage === 'cancelederror' ||
-    normalizedMessage.includes('query was cancelled')
+    normalizedMessage.includes('query was cancelled') ||
+    normalizedMessage.includes('cancelled') ||
+    normalizedMessage.includes('canceled') ||
+    normalizedMessage.includes('aborted')
   )
 }
 
@@ -220,6 +225,7 @@ function getLocalBoardSyncStamp(snapshot: BoardStore, boardId: string): number {
 export default function Board({
   createBoardSignal,
   shareBoardSignal,
+  externalReloadSignal = 0,
   openCardRequest,
   closeCardModalSignal = 0,
   selectedBoardId,
@@ -264,6 +270,7 @@ export default function Board({
   const manualStoreLoadingRef = useRef(false)
   const channelIssueStreakRef = useRef(0)
   const stampCheckFailureStreakRef = useRef(0)
+  const lastExternalReloadSignalRef = useRef(externalReloadSignal)
 
   const applyStore = useCallback((nextStore: BoardStore) => {
     storeRef.current = nextStore
@@ -447,6 +454,10 @@ export default function Board({
 
   const handleRemoteError = useCallback(
     (action: string, error: unknown, boardIdOverride?: string, details?: { resourceId?: string; rollback?: () => void }) => {
+      if (isQueryCancellationError(error)) {
+        details?.rollback?.()
+        return
+      }
       details?.rollback?.()
       const message = error instanceof Error ? error.message : 'Não foi possível salvar as alterações.'
       const boardId = boardIdOverride ?? activeBoardId
@@ -462,6 +473,18 @@ export default function Board({
     },
     [activeBoardId, loadStore, showOperationError]
   )
+
+  useEffect(() => {
+    if (lastExternalReloadSignalRef.current === externalReloadSignal) {
+      return
+    }
+    lastExternalReloadSignalRef.current = externalReloadSignal
+    void loadStore(activeBoardId || undefined, {
+      forceRefresh: true,
+      silent: true,
+      bypassInFlight: true
+    })
+  }, [activeBoardId, externalReloadSignal, loadStore])
 
   const invalidateBoardQueries = useCallback(
     (boardIdOverride?: string, options?: { includeArchived?: boolean }) => {
@@ -753,6 +776,13 @@ export default function Board({
 
     const requestBoardStampCheck = async (source: 'interaction' | 'focus' | 'visibility' | 'heartbeat') => {
       if (effectDisposed) {
+        return
+      }
+      if (
+        source === 'interaction' &&
+        channelIssueStreakRef.current === 0 &&
+        stampCheckFailureStreakRef.current === 0
+      ) {
         return
       }
       if (pendingRealtimeRefreshRef.current || isRealtimeRefreshingRef.current) {

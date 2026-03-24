@@ -205,7 +205,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const boardCatalogQuery = useQuery({
     queryKey: queryKeys.boardCatalog,
     queryFn: listBoardCatalogRemote,
-    refetchOnWindowFocus: true
+    refetchOnWindowFocus: false
   })
 
   const boardCatalog = useMemo(() => boardCatalogQuery.data ?? [], [boardCatalogQuery.data])
@@ -799,9 +799,9 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         )}
 
         <Board
-          key={boardReloadKey}
           createBoardSignal={createBoardSignal}
           shareBoardSignal={shareBoardSignal}
+          externalReloadSignal={boardReloadKey}
           openCardRequest={openCardRequest}
           closeCardModalSignal={closeCardModalSignal}
           selectedBoardId={selectedBoardId}
