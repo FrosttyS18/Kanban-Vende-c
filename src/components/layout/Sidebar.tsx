@@ -3,7 +3,7 @@ import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, ChevronDown, Crown, Lock, Plus, RotateCcw, Search, Settings2, Share2, SquareKanban, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Crown, Lock, Plus, RotateCcw, Search, Settings2, Share2, SquareKanban, Trash2, X } from 'lucide-react'
 import archivedIcon from '@/assets/icons/icon-arquivados.svg'
 import membersIcon from '@/assets/icons/icon-membros.svg'
 import { queryKeys } from '@/lib/queryKeys'
@@ -373,29 +373,33 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-all duration-500 ease-out ${
+        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-[width,border-color] duration-500 ease-out ${
           mobileOpen
             ? 'fixed inset-0 z-120 flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
-            : 'hidden h-full lg:flex lg:w-63.25 lg:flex-col'
-        } ${!mobileOpen && isCollapsed ? 'lg:w-0 lg:border-r-transparent' : ''}`}
+            : isCollapsed
+              ? 'hidden h-full lg:flex lg:w-0 lg:min-w-0 lg:overflow-visible lg:border-r-transparent'
+              : 'hidden h-full lg:flex lg:w-63.25 lg:min-w-63.25 lg:flex-col'
+        }`}
       >
 
       {!mobileOpen && (
-        <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-full">
-          <div className="relative flex h-29 w-10 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
-            <div className="absolute -left-3 h-20 w-8 rounded-r-full border border-l-0 border-white/8 bg-[#1a1b1f]" />
+        <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-1/2">
+          <div className="relative flex h-30 w-12 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#1f2023] shadow-xl">
+            <div className="absolute -left-5 h-24 w-12 rounded-full border border-white/10 bg-[#1a1b1f]" />
+            <div className="absolute -left-3 h-20 w-8 rounded-full border border-white/6 bg-[#191a1e]" />
             <button
               type="button"
               onClick={onToggleDesktopCollapsed}
-              className="relative z-10 inline-flex size-8 items-center justify-center rounded-full text-[#d1d1d1] transition-colors duration-200 hover:bg-white/10 hover:text-white"
+              className="relative z-10 inline-flex size-9 items-center justify-center rounded-full text-[#f2f2f2] transition-colors duration-200 hover:bg-white/10"
               aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
             >
-              <ArrowLeft className={`size-4 transition-transform duration-500 ease-out ${isCollapsed ? 'rotate-180' : ''}`} />
+              <ChevronRight className="size-5" />
             </button>
           </div>
         </div>
       )}
-      <div className={`min-h-0 flex-1 transition-all duration-300 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'} ${!mobileOpen && isCollapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100'}`}>
+      {(!isCollapsed || mobileOpen) && (
+      <div className={`min-h-0 flex-1 transition-all duration-300 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'} translate-x-0 opacity-100`}>
         {mobileOpen && (
           <>
             <div className="mb-5 flex items-center gap-4">
@@ -506,6 +510,7 @@ export default function Sidebar({
           </SortableContext>
         </DndContext>
       </div>
+      )}
 
       {mobileOpen && onMobileShareBoard && (
         <button
@@ -521,7 +526,8 @@ export default function Sidebar({
         </button>
       )}
 
-      <div className={`mt-auto border-t border-[#3d3d3d] transition-all duration-300 ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'} ${!mobileOpen && isCollapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100'}`}>
+      {(!isCollapsed || mobileOpen) && (
+      <div className={`mt-auto border-t border-[#3d3d3d] transition-all duration-300 ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'} translate-x-0 opacity-100`}>
         <button
           type="button"
           onClick={() => {
@@ -537,6 +543,7 @@ export default function Sidebar({
           Configurações
         </button>
       </div>
+      )}
 
       {contextMenu && (
         <div ref={menuRef} style={{ top: contextMenu.top, left: contextMenu.left }} className="fixed z-80 w-44 rounded-lg border border-white/10 bg-[#242528] p-1.5 shadow-xl">
@@ -931,5 +938,3 @@ export default function Sidebar({
     </>
   )
 }
-
-
