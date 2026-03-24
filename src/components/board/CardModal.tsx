@@ -1117,7 +1117,7 @@ export default function CardModal({
       return
     }
 
-    const value = dueTimeInput ? `${dueDateInput}T${dueTimeInput}:00` : `${dueDateInput}T00:00:00`
+    const value = dueTimeInput ? `${dueDateInput}T${dueTimeInput}:00` : dueDateInput
     const parsed = new Date(value)
     if (Number.isNaN(parsed.getTime())) {
       return
