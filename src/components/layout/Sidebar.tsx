@@ -383,17 +383,19 @@ export default function Sidebar({
       >
 
       {!mobileOpen && (
-        <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-1/2">
-          <div className="relative flex h-28 w-10 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
-            <button
-              type="button"
-              onClick={onToggleDesktopCollapsed}
-              className="inline-flex size-9 items-center justify-center rounded-full text-white transition-colors duration-200 hover:bg-white/10"
-              aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-            >
-              <ChevronRight className="size-5" />
-            </button>
-          </div>
+        <div className="absolute -right-[1px] top-1/2 z-50 flex h-20 w-5 -translate-y-1/2 translate-x-full items-center justify-center">
+          <button
+            type="button"
+            onClick={onToggleDesktopCollapsed}
+            className="group relative flex h-full w-full items-center justify-center text-[#d1d1d1] transition-colors hover:text-white focus:outline-none"
+            aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+          >
+            <svg width="20" height="80" viewBox="0 0 20 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute inset-0 h-full w-full text-[#1e1e1e]">
+              <path d="M0 0 L0.5 0 C0.5 24, 19.5 20, 19.5 40 C19.5 60, 0.5 56, 0.5 80 L0 80 Z" fill="currentColor" />
+              <path d="M0.5 0 C0.5 24, 19.5 20, 19.5 40 C19.5 60, 0.5 56, 0.5 80" fill="none" stroke="#3d3d3d" strokeWidth="1" />
+            </svg>
+            <ChevronRight className={`relative z-10 size-3.5 translate-x-[1px] transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`} />
+          </button>
         </div>
       )}
       {(!isCollapsed || mobileOpen) && (
