@@ -33,7 +33,6 @@ import {
   deleteCardRemote,
   deleteListRemote,
   createMemberAssignmentNotificationsRemote,
-  inviteMemberByEmailRemote,
   loadBoardStoreFromRemote,
   getBoardSyncStampRemote,
   recordCardActivityRemote,
@@ -584,11 +583,6 @@ export default function Board({
   const replaceBoardShareSettingsMutation = useMutation({
     mutationFn: (variables: { boardId: string; ownerMemberId: string; settings: BoardShareSettings }) =>
       replaceBoardShareSettingsRemote(variables.boardId, variables.ownerMemberId, variables.settings)
-  })
-
-  const inviteMemberByEmailMutation = useMutation({
-    mutationFn: (variables: { boardId: string; email: string; permission: 'view' | 'edit' }) =>
-      inviteMemberByEmailRemote(variables.boardId, variables.email, variables.permission)
   })
 
   const createBoardMutation = useMutation({
@@ -1488,41 +1482,6 @@ export default function Board({
     })
   }
 
-  const inviteMemberByEmail = async (email: string, permission: 'view' | 'edit'): Promise<{ ok: boolean; message?: string }> => {
-    if (!activeBoardId) {
-      return { ok: false, message: 'Board nao encontrado.' }
-    }
-
-    const mutationResult = await runMutation(
-      inviteMemberByEmailMutation,
-      {
-      boardId: activeBoardId,
-      email,
-      permission
-      },
-      {
-        action: 'invite_member_by_email',
-        boardId: activeBoardId
-      }
-    )
-    if (!mutationResult.ok) {
-      return { ok: false, message: 'Nao foi possivel enviar o convite.' }
-    }
-    const result = mutationResult.data
-    if (!result) {
-      return { ok: false, message: 'Nao foi possivel enviar o convite.' }
-    }
-    if (!result.ok) {
-      return result
-    }
-
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.boardStore(activeBoardId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.boardCatalog })
-    ])
-    return result
-  }
-
   const onDragStart = (event: DragStartEvent) => {
     const snapshot = storeRef.current
     const boardColumns = getBoardColumns(snapshot, activeBoardId)
@@ -2177,7 +2136,6 @@ export default function Board({
           shareSettings={shareSettings}
           onClose={() => setDismissedShareSignal(shareBoardSignal)}
           onChange={updateShareSettings}
-          onInviteByEmail={inviteMemberByEmail}
         />
       )}
 

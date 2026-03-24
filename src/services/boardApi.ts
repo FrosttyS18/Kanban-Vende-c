@@ -172,7 +172,6 @@ const MEMBER_COLORS = ['#ff0068', '#ff2d55', '#ef4444', '#f97316', '#f59e0b', '#
 const STORE_VERSION = 3
 const PROFILE_CACHE_TTL_MS = 300000
 const CURRENT_USER_CACHE_TTL_MS = 300000
-const PENDING_INVITE_SYNC_INTERVAL_MS = 300000
 
 type CurrentUser = { id: string; email: string; fullName: string | null; avatarUrl: string | null }
 
@@ -196,7 +195,6 @@ let currentUserCache:
     }
   | null = null
 let currentUserInFlight: Promise<CurrentUser> | null = null
-const lastPendingInviteSyncByUserId = new Map<string, number>()
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
@@ -388,22 +386,6 @@ async function ensureCurrentProfile(options?: { forceRefresh?: boolean }): Promi
       }
 
       row = upsertData as { id: string; email: string; last_board_id: string | null; role_global: GlobalUserRole | null } | null
-    }
-
-    const nowMs = Date.now()
-    const lastPendingInviteSync = lastPendingInviteSyncByUserId.get(user.id) ?? 0
-    const shouldSyncPendingInvites = forceRefresh || nowMs - lastPendingInviteSync >= PENDING_INVITE_SYNC_INTERVAL_MS
-
-    if (shouldSyncPendingInvites) {
-      const { error: syncInvitesError } = await supabase.rpc('sync_pending_board_invites_for_current_user')
-      if (!syncInvitesError) {
-        lastPendingInviteSyncByUserId.set(user.id, nowMs)
-      } else if (import.meta.env.DEV) {
-        console.warn('[pending_invites_sync_failed]', {
-          userId: user.id,
-          message: syncInvitesError.message
-        })
-      }
     }
 
     const currentProfile: CurrentProfile = {

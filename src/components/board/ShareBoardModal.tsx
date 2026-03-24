@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Copy, Link2, Mail, Trash2, UserPlus, X } from 'lucide-react'
+import { ChevronDown, Copy, Link2, Mail, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { type BoardData, type BoardShareSettings, type Member, type SharePermission } from '@/types'
@@ -13,7 +13,6 @@ type ShareBoardModalProps = {
   shareSettings: BoardShareSettings
   onClose: () => void
   onChange: (next: BoardShareSettings) => void
-  onInviteByEmail: (email: string, permission: SharePermission) => Promise<{ ok: boolean; message?: string }>
 }
 
 function getShareLink(boardId: string, token: string, allowLinkAccess: boolean): string {
@@ -26,10 +25,6 @@ function getShareLink(boardId: string, token: string, allowLinkAccess: boolean):
   }
 
   return `${window.location.origin}${path}`
-}
-
-function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 type SelectOption = {
@@ -111,13 +106,8 @@ function CustomSelect({ value, options, onChange, buttonClassName = '', menuClas
   )
 }
 
-export default function ShareBoardModal({ isOpen, board, members, currentMemberId, ownerMemberId, shareSettings, onClose, onChange, onInviteByEmail }: ShareBoardModalProps) {
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [permission, setPermission] = useState<SharePermission>('edit')
-  const [isInviting, setIsInviting] = useState(false)
+export default function ShareBoardModal({ isOpen, board, members, currentMemberId, ownerMemberId, shareSettings, onClose, onChange }: ShareBoardModalProps) {
   const [copied, setCopied] = useState(false)
-  const [inviteError, setInviteError] = useState('')
-  const [inviteSuccess, setInviteSuccess] = useState('')
 
   const canManageShare = currentMemberId === ownerMemberId
   const shareLink = getShareLink(board.id, shareSettings.linkToken, shareSettings.allowLinkAccess)
@@ -126,101 +116,20 @@ export default function ShareBoardModal({ isOpen, board, members, currentMemberI
     return null
   }
 
-  const addMember = async () => {
-    const normalizedEmail = inviteEmail.trim().toLowerCase()
-    if (!normalizedEmail) {
-      setInviteError('Informe um e-mail para convidar.')
-      setInviteSuccess('')
-      return
-    }
-
-    if (!isValidEmail(normalizedEmail)) {
-      setInviteError('Digite um e-mail valido.')
-      setInviteSuccess('')
-      return
-    }
-
-    if (!canManageShare) {
-      setInviteError('Somente o owner pode gerenciar compartilhamento.')
-      setInviteSuccess('')
-      return
-    }
-
-    setIsInviting(true)
-    const inviteResult = await onInviteByEmail(normalizedEmail, permission)
-    setIsInviting(false)
-
-    if (!inviteResult.ok) {
-      setInviteError(inviteResult.message ?? 'Nao foi possivel adicionar este e-mail.')
-      setInviteSuccess('')
-      return
-    }
-
-    setInviteError('')
-    setInviteSuccess(inviteResult.message ?? 'Compartilhamento atualizado com sucesso.')
-    setInviteEmail('')
-    setPermission('edit')
-  }
-
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Compartilhar board">
       <div className="max-h-[calc(100vh-32px)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/15 bg-[#1e1e1e] p-6">
         <div className="mb-5 flex items-start justify-between">
           <div>
             <h2 className="text-[30px] font-semibold leading-tight text-white">Compartilhar "{board.title}"</h2>
-            <p className="mt-1 text-sm text-[#bcbcbc]">Adicione pessoas, ajuste permissoes e controle o acesso do link.</p>
+            <p className="mt-1 text-sm text-[#bcbcbc]">Ajuste permissoes dos membros e compartilhe pelo link.</p>
           </div>
           <Button variant="ghost" size="icon" className="text-[#d1d1d1] hover:bg-white/10" onClick={onClose}>
             <X className="size-4" />
           </Button>
         </div>
 
-        <section className="mt-1">
-          <label htmlFor="share-invite-email" className="text-sm font-medium text-[#d9d9d9]">
-            Adicionar participante por e-mail corporativo
-          </label>
-          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[1fr_170px_130px]">
-            <Input
-              id="share-invite-email"
-              value={inviteEmail}
-              onChange={(event) => {
-                setInviteEmail(event.target.value)
-                if (inviteError) {
-                  setInviteError('')
-                }
-                if (inviteSuccess) {
-                  setInviteSuccess('')
-                }
-              }}
-              placeholder="nome@vende-c.com"
-              className="h-11 border-white/20 bg-black text-sm text-white placeholder:text-[#8b8b8b] focus-visible:ring-2 focus-visible:ring-primary"
-              disabled={!canManageShare}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void addMember()
-                }
-              }}
-            />
-            <CustomSelect
-              value={permission}
-              onChange={(nextValue) => setPermission(nextValue as SharePermission)}
-              options={[
-                { value: 'view', label: 'Visualizar' },
-                { value: 'edit', label: 'Editar' }
-              ]}
-              buttonClassName={!canManageShare ? 'pointer-events-none opacity-60' : ''}
-            />
-            <Button className="h-11 bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void addMember()} disabled={!inviteEmail.trim() || isInviting || !canManageShare}>
-              <UserPlus className="mr-1 size-4" />
-              {isInviting ? 'Adicionando...' : 'Adicionar'}
-            </Button>
-          </div>
-          {inviteError && <p className="mt-2 text-sm text-[#ff8fae]">{inviteError}</p>}
-          {inviteSuccess && <p className="mt-2 text-sm text-[#86efac]">{inviteSuccess}</p>}
-        </section>
-
-        <section className="mt-6 border-t border-white/10 pt-5">
+        <section className="mt-1 border-t border-white/10 pt-5">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-[28px] font-semibold text-white">Pessoas com acesso</h3>
             <div className="flex items-center gap-1 text-[#d1d1d1]">
