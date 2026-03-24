@@ -100,7 +100,7 @@ const BOARD_COLOR_OPTIONS = [
   '#d946ef',
   '#ec4899'
 ]
-const REALTIME_RELOAD_DEBOUNCE_MS = 250
+const REALTIME_RELOAD_DEBOUNCE_MS = 150
 const MUTATION_ERROR_RESET_MS = 6000
 const REALTIME_RECONNECT_BASE_DELAY_MS = 500
 const REALTIME_RECONNECT_MAX_DELAY_MS = 4000
@@ -272,11 +272,98 @@ export default function Board({
   const channelIssueStreakRef = useRef(0)
   const stampCheckFailureStreakRef = useRef(0)
   const lastExternalReloadSignalRef = useRef(externalReloadSignal)
+  const requestRealtimeRefreshRef = useRef<((mode: 'debounced' | 'immediate') => void) | null>(null)
 
   const applyStore = useCallback((nextStore: BoardStore) => {
     storeRef.current = nextStore
     setStore(nextStore)
   }, [])
+
+  const applyRealtimeUpdate = useCallback((event: {
+    table: string
+    eventType: string
+    new?: Record<string, unknown>
+    old?: Record<string, unknown>
+  }) => {
+    const snapshot = storeRef.current
+    const { table, eventType, new: newData, old: oldData } = event
+    const currentBoardId = snapshot.currentBoardId || activeBoardId
+
+    if (table === 'cards') {
+      if (eventType === 'UPDATE' && newData) {
+        const cardId = newData.id as string
+        const cardIndex = snapshot.cards.findIndex((c) => c.id === cardId)
+        if (cardIndex !== -1) {
+          const updatedCards = [...snapshot.cards]
+          updatedCards[cardIndex] = {
+            ...updatedCards[cardIndex],
+            ...newData,
+            updatedAt: new Date().toISOString()
+          } as CardData
+          applyStore({ ...snapshot, cards: updatedCards })
+        }
+        return
+      }
+      if (eventType === 'INSERT' && newData) {
+        const newCard: CardData = {
+          id: newData.id as string,
+          listId: newData.list_id as string,
+          title: (newData.title as string) || '',
+          description: (newData.description as string) || '',
+          labels: [],
+          memberIds: [],
+          isCompleted: Boolean(newData.is_completed),
+          checklists: [],
+          links: [],
+          activities: [],
+          createdAt: (newData.created_at as string) || new Date().toISOString(),
+          updatedAt: (newData.updated_at as string) || new Date().toISOString()
+        }
+        const boardListIds = new Set(snapshot.columns.filter((c) => c.boardId === currentBoardId).map((c) => c.id))
+        if (boardListIds.has(newCard.listId)) {
+          applyStore({ ...snapshot, cards: [...snapshot.cards, newCard] })
+        }
+        return
+      }
+      if (eventType === 'DELETE' && oldData) {
+        applyStore({ ...snapshot, cards: snapshot.cards.filter((c) => c.id !== oldData.id) })
+        return
+      }
+    }
+
+    if (table === 'lists') {
+      if (eventType === 'UPDATE' && newData) {
+        const listId = newData.id as string
+        const updatedColumns = snapshot.columns.map((col) =>
+          col.id === listId ? { ...col, ...newData } : col
+        )
+        applyStore({ ...snapshot, columns: updatedColumns })
+        return
+      }
+      if (eventType === 'INSERT' && newData) {
+        const newList: ColumnData = {
+          id: newData.id as string,
+          boardId: newData.board_id as string,
+          title: (newData.title as string) || '',
+          position: (newData.position as number) || 0
+        }
+        if (newList.boardId === currentBoardId) {
+          applyStore({ ...snapshot, columns: [...snapshot.columns, newList] })
+        }
+        return
+      }
+      if (eventType === 'DELETE' && oldData) {
+        applyStore({
+          ...snapshot,
+          columns: snapshot.columns.filter((c) => c.id !== oldData.id),
+          cards: snapshot.cards.filter((c) => c.listId !== oldData.id)
+        })
+        return
+      }
+    }
+
+    requestRealtimeRefreshRef.current?.('debounced')
+  }, [applyStore])
 
   useEffect(() => {
     storeRef.current = store
@@ -742,6 +829,7 @@ export default function Board({
     }
 
     const requestRealtimeRefresh = (mode: 'debounced' | 'immediate' = 'debounced') => {
+      requestRealtimeRefreshRef.current = requestRealtimeRefresh
       if (effectDisposed) {
         return
       }
@@ -877,8 +965,12 @@ export default function Board({
       }
     }, BOARD_SYNC_HEARTBEAT_MS)
 
-    const unsubscribe = subscribeBoardRealtimeWithOptions(activeBoardId, () => {
-      requestRealtimeRefresh()
+    const unsubscribe = subscribeBoardRealtimeWithOptions(activeBoardId, (event) => {
+      if (event) {
+        applyRealtimeUpdate(event)
+      } else {
+        requestRealtimeRefresh()
+      }
     }, {
       currentUserId: store.currentMemberId,
       initialScope: {

@@ -178,6 +178,8 @@
 
 ### Fase 3 - Enhancement (Semanas 4-6)
 - [x] Lazy loading de componentes (CardModal, ShareBoardModal)
+- [x] Update granular realtime (cards e listas atualizam localmente sem reload)
+- [x] Reduzir debounce realtime de 250ms para 150ms
 - [ ] Aprimorar acessibilidade
 - [ ] Empty states e tooltips
 

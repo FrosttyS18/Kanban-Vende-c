@@ -1852,12 +1852,7 @@ export async function joinBoardViaTokenRemote(token: string): Promise<string> {
   return data
 }
 
-type RealtimeCallback = (event?: {
-  table: string
-  eventType: string
-  new?: Record<string, unknown>
-  old?: Record<string, unknown>
-}) => void
+type RealtimeCallback = () => void
 
 type RealtimePayload = {
   eventType?: string
@@ -2000,46 +1995,38 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
     return Boolean(cardId && scopedCardIds.has(cardId))
   }
 
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, (payload) => {
-    onChange({ table: 'boards', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
-  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, onChange)
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'lists', filter: `board_id=eq.${boardId}` }, (payload) => {
     const typedPayload = payload as RealtimePayload
     syncScopedId(scopedListIds, getPayloadString(typedPayload, 'id'), typedPayload.eventType)
-    onChange({ table: 'lists', eventType: typedPayload.eventType ?? 'UPDATE', new: typedPayload.new, old: typedPayload.old })
+    onChange()
   })
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'labels', filter: `board_id=eq.${boardId}` }, (payload) => {
-    onChange({ table: 'labels', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
-  })
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_members', filter: `board_id=eq.${boardId}` }, (payload) => {
-    onChange({ table: 'board_members', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
-  })
-  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_share_links', filter: `board_id=eq.${boardId}` }, (payload) => {
-    onChange({ table: 'board_share_links', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
-  })
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'labels', filter: `board_id=eq.${boardId}` }, onChange)
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_members', filter: `board_id=eq.${boardId}` }, onChange)
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'board_share_links', filter: `board_id=eq.${boardId}` }, onChange)
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, (payload) => {
     if (isScopedCardEvent(payload as RealtimePayload)) {
-      onChange({ table: 'cards', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_labels' }, (payload) => {
     if (isScopedCardChildEvent(payload as RealtimePayload)) {
-      onChange({ table: 'card_labels', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_members' }, (payload) => {
     if (isScopedCardChildEvent(payload as RealtimePayload)) {
-      onChange({ table: 'card_members', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_links' }, (payload) => {
     if (isScopedCardChildEvent(payload as RealtimePayload)) {
-      onChange({ table: 'card_links', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'card_activities' }, (payload) => {
     if (isScopedCardChildEvent(payload as RealtimePayload)) {
-      onChange({ table: 'card_activities', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklists' }, (payload) => {
@@ -2053,7 +2040,7 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
       const scopedChecklistId = `${cardId}:${checklistId}`
       syncScopedId(scopedChecklistIds, scopedChecklistId, typedPayload.eventType)
     }
-    onChange({ table: 'checklists', eventType: typedPayload.eventType ?? 'UPDATE', new: typedPayload.new, old: typedPayload.old })
+    onChange()
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, (payload) => {
     const typedPayload = payload as RealtimePayload
@@ -2063,7 +2050,7 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
     }
     const hasChecklistInScope = Array.from(scopedChecklistIds).some((value) => value.endsWith(`:${checklistId}`))
     if (hasChecklistInScope) {
-      onChange({ table: 'checklist_items', eventType: typedPayload.eventType ?? 'UPDATE', new: typedPayload.new, old: typedPayload.old })
+      onChange()
     }
   })
   channel.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
@@ -2074,7 +2061,7 @@ export function subscribeBoardRealtimeWithOptions(boardId: string, onChange: Rea
 
     const userId = getPayloadString(payload as RealtimePayload, 'user_id')
     if (userId === options.currentUserId) {
-      onChange({ table: 'notifications', eventType: payload.eventType ?? 'UPDATE', new: payload.new, old: payload.old })
+      onChange()
     }
   })
 

@@ -188,3 +188,38 @@ export interface BoardStore {
   currentMemberId: string
   currentUserRole: GlobalUserRole
 }
+
+export type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE'
+
+export type RealtimeTable =
+  | 'cards'
+  | 'lists'
+  | 'labels'
+  | 'checklists'
+  | 'checklist_items'
+  | 'card_labels'
+  | 'card_members'
+  | 'card_links'
+  | 'card_activities'
+  | 'board_members'
+
+export interface RealtimeEvent {
+  table: RealtimeTable
+  eventType: RealtimeEventType
+  new?: Record<string, unknown>
+  old?: Record<string, unknown>
+}
+
+export interface CardRealtimeUpdate {
+  table: 'cards'
+  eventType: RealtimeEventType
+  new?: Partial<CardData>
+  old?: { id: string }
+}
+
+export interface ListRealtimeUpdate {
+  table: 'lists'
+  eventType: RealtimeEventType
+  new?: Partial<ColumnData>
+  old?: { id: string }
+}
