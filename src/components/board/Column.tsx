@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import Card from '@/components/board/Card'
+import { useVirtualizedCards } from '@/hooks/useVirtualizedCards'
 import { type CardData, type ColumnData, type Label, type Member, type RecordCardActivityInput } from '@/types'
 
 const LIST_TITLE_MAX_LENGTH = 150
@@ -108,6 +109,14 @@ export default function Column({
 
   const cardsIds = useMemo(() => cards.map((card) => card.id), [cards])
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  const { virtualItems, totalSize, isVirtualizationEnabled } = useVirtualizedCards({
+    cards,
+    containerRef: scrollContainerRef,
+    enabled: !isOverlay
+  })
+
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: column.id,
     data: {
@@ -163,6 +172,31 @@ export default function Column({
     onAddCard(column.id, title, addingCardMode)
     setNewCardTitle('')
   }
+
+  const renderCard = (card: CardData) => (
+    <Card
+      key={card.id}
+      card={card}
+      listTitle={column.title}
+      listOptions={listOptions}
+      availableLabels={availableLabels}
+      onUpdateAvailableLabels={onUpdateAvailableLabels}
+      boardMembers={boardMembers}
+      currentMemberId={currentMemberId}
+      boardId={boardId}
+      onRecordActivity={onRecordActivity}
+      closeModalSignal={closeCardModalSignal}
+      openCardRequest={openCardRequest}
+      onOpenModal={onCardOpen}
+      onCloseModal={onCardClose}
+      onUpdate={onUpdateCard}
+      onDelete={onDeleteCard}
+      onArchive={onArchiveCard}
+      isOverlay={isOverlay}
+      disableModal={isOverlay}
+      operationErrorMessage={operationErrorMessage}
+    />
+  )
 
   if (isDragging) {
     return <div ref={setNodeRef} style={style} className="h-165.25 w-68.25 shrink-0 rounded-2xl border border-white/10 bg-[#101204] opacity-50" />
@@ -253,34 +287,35 @@ export default function Column({
           document.body
         )}
 
-      <div className="custom-scrollbar flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+      <div ref={scrollContainerRef} className="custom-scrollbar flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {addingCardMode === 'top' && <AddCardInput value={newCardTitle} onChange={setNewCardTitle} onAdd={saveCard} onCancel={closeAddCard} />}
 
         <SortableContext items={cardsIds} strategy={verticalListSortingStrategy}>
-          {cards.map((card) => (
-            <Card
-              key={card.id}
-              card={card}
-              listTitle={column.title}
-              listOptions={listOptions}
-              availableLabels={availableLabels}
-              onUpdateAvailableLabels={onUpdateAvailableLabels}
-              boardMembers={boardMembers}
-              currentMemberId={currentMemberId}
-              boardId={boardId}
-              onRecordActivity={onRecordActivity}
-              closeModalSignal={closeCardModalSignal}
-              openCardRequest={openCardRequest}
-              onOpenModal={onCardOpen}
-              onCloseModal={onCardClose}
-              onUpdate={onUpdateCard}
-              onDelete={onDeleteCard}
-              onArchive={onArchiveCard}
-              isOverlay={isOverlay}
-              disableModal={isOverlay}
-              operationErrorMessage={operationErrorMessage}
-            />
-          ))}
+          {isVirtualizationEnabled ? (
+            <div style={{ height: totalSize, position: 'relative' }}>
+              {virtualItems.map((virtualRow) => {
+                const card = cards[virtualRow.index]
+                return (
+                  <div
+                    key={card.id}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`
+                    }}
+                  >
+                    {renderCard(card)}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <>
+              {cards.map((card) => renderCard(card))}
+            </>
+          )}
         </SortableContext>
 
         {addingCardMode === 'bottom' && <AddCardInput value={newCardTitle} onChange={setNewCardTitle} onAdd={saveCard} onCancel={closeAddCard} />}

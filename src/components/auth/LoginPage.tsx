@@ -36,7 +36,7 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
 
         <div className="login-enter-left login-delay-1 absolute left-15 top-35.5 w-86.75">
           <Logo className="login-enter login-delay-2 mx-auto h-7.5 w-38.25" />
-          <h1 className="login-enter login-delay-3 mt-10.25 text-center text-[17px]/[1.1] font-bold">Acesso ao Kaban do VENDE-C</h1>
+          <h1 className="login-enter login-delay-3 mt-10.25 text-center text-[17px]/[1.1] font-bold">Acesso ao Kanban do VENDE-C</h1>
           <p className="login-enter login-delay-4 mt-2.25 text-center text-[11.5px] text-[#555555]">Entre com sua conta Google corporativa</p>
 
           <button

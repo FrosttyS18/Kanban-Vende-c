@@ -47,6 +47,7 @@ import {
   updateListRemote,
   upsertCardRemote
 } from '@/services/boardApi'
+import BoardSkeleton from '@/components/board/BoardSkeleton'
 
 type BoardProps = {
   createBoardSignal: number
@@ -1788,7 +1789,7 @@ export default function Board({
   }
 
   if (isLoadingStore) {
-    return <div className="flex h-full w-full items-center justify-center text-sm text-[#d1d1d1]">Carregando boards...</div>
+    return <BoardSkeleton columnCount={5} />
   }
 
   if (storeError) {
