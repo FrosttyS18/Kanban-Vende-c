@@ -212,6 +212,7 @@ export default function ChecklistBlock({
             onChange={(event) => onDraftChange(event.target.value)}
             placeholder="Adicionar um item"
             className="h-9 w-full rounded-[6px] border border-[#ff0068] bg-[#242528] px-3 text-[16px] text-[#d1d1d1] placeholder:text-[#9a9a9a] outline-none focus:border-[#ff0068]"
+            autoFocus
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()

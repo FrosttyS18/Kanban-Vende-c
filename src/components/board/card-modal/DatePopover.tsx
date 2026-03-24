@@ -1,4 +1,4 @@
-﻿import { createPortal } from 'react-dom'
+import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef } from 'react'
 import { Calendar, Clock3 } from 'lucide-react'
 
@@ -126,7 +126,8 @@ export default function DatePopover({
               value={dueDate}
               min={getTodayDate()}
               onChange={(event) => onDateChange(event.target.value)}
-              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 focus:border-[#ff0068]"
+              autoFocus
+              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark focus:border-[#ff0068] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
             />
             <Calendar className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
           </div>
@@ -135,7 +136,7 @@ export default function DatePopover({
               type="time"
               value={dueTime}
               onChange={(event) => onTimeChange(event.target.value)}
-              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 focus:border-[#ff0068]"
+              className="h-10 w-full rounded-[6px] border border-[#525252] bg-[#242528] px-3 pr-9 text-sm text-[#d1d1d1] outline-none scheme-dark focus:border-[#ff0068] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
             />
             <Clock3 className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
           </div>
