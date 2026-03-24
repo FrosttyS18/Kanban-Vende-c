@@ -1,4 +1,4 @@
-﻿import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -137,6 +137,7 @@ export default function Sidebar({
   const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
+  const [isCollapsed, setIsCollapsed] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
   const sensors = useSensors(
@@ -368,13 +369,13 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] ${
+        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-all duration-300 ease-in-out ${
           mobileOpen
-            ? 'fixed inset-0 z-[120] flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
-            : 'hidden h-full w-63.25 lg:flex lg:flex-col'
-        }`}
+            ? 'fixed inset-0 z-120 flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
+            : 'hidden h-full lg:flex lg:flex-col'
+        } ${!mobileOpen && isCollapsed ? 'lg:w-16' : ''}`}
       >
-      <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'}`}>
+      <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : isCollapsed ? 'px-3 pb-6 pt-7' : 'px-8 pb-6 pt-7'}`}>
         {mobileOpen && (
           <>
             <div className="mb-5 flex items-center gap-4">
@@ -392,14 +393,14 @@ export default function Sidebar({
                   value={mobileSearchQuery}
                   onChange={(event) => onMobileSearchChange?.(event.target.value)}
                   placeholder="Pesquisar"
-                  className="h-11 w-full rounded-[8px] border border-white/10 bg-black px-4 pr-10 text-[14px] font-medium text-[#d1d1d1] outline-none focus:border-primary"
+                  className="h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-10 text-[14px] font-medium text-[#d1d1d1] outline-none focus:border-primary"
                   aria-label="Pesquisar"
                 />
               </div>
             </div>
 
             {mobileSearchQuery.trim().length >= 3 && (
-              <div className="mb-4 max-h-44 overflow-y-auto rounded-[8px] border border-white/10 bg-[#1f1f21] p-1">
+              <div className="mb-4 max-h-44 overflow-y-auto rounded-xl border border-white/10 bg-[#1f1f21] p-1">
                 {mobileSearchLoading ? (
                   <p className="px-2 py-2 text-xs text-[#a9a9a9]">Buscando...</p>
                 ) : mobileSearchError ? (
@@ -432,52 +433,65 @@ export default function Sidebar({
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[18px] font-semibold text-white">
             <SquareKanban className="size-4 text-[#d1d1d1]" />
-            Boards
+            {!isCollapsed && 'Boards'}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onCreateBoard()
-              if (mobileOpen) {
-                closeMobileDrawer()
-              }
-            }}
-            className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
-            aria-label="Criar board"
-            disabled={!canCreateBoard}
-            title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
-          >
-            <Plus className="size-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                onCreateBoard()
+                if (mobileOpen) {
+                  closeMobileDrawer()
+                }
+              }}
+              className="text-[#d1d1d1] hover:text-white disabled:cursor-not-allowed disabled:text-[#696969]"
+              aria-label="Criar board"
+              disabled={!canCreateBoard}
+              title={!canCreateBoard ? 'Somente administradores podem criar boards.' : undefined}
+            >
+              <Plus className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="text-[#d1d1d1] hover:text-white"
+              aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+              title={isCollapsed ? 'Expandir' : 'Recolher'}
+            >
+              <ArrowLeft className={`size-4 transition-transform ${isCollapsed ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
         </div>
         <div className="mb-4 border-b border-[#3d3d3d]" />
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={boards.map((board) => board.id)} strategy={verticalListSortingStrategy}>
-            <div className="space-y-4">
-              {boards.map((board) => (
-                <SortableBoardButton
-                  key={board.id}
-                  board={board}
-                  active={board.id === activeBoardId}
-                  fullWidth={mobileOpen}
-                  onSelectBoard={handleSelectBoard}
-                  onContextMenu={(event, boardId) => {
-                    const targetBoard = boards.find((item) => item.id === boardId)
-                    if (!targetBoard?.hasAccess) {
-                      return
-                    }
+            {!isCollapsed && (
+              <div className="space-y-4">
+                {boards.map((board) => (
+                  <SortableBoardButton
+                    key={board.id}
+                    board={board}
+                    active={board.id === activeBoardId}
+                    fullWidth={mobileOpen}
+                    onSelectBoard={handleSelectBoard}
+                    onContextMenu={(event, boardId) => {
+                      const targetBoard = boards.find((item) => item.id === boardId)
+                      if (!targetBoard?.hasAccess) {
+                        return
+                      }
 
-                    event.preventDefault()
-                    setContextMenu({
-                      boardId,
-                      top: Math.min(window.innerHeight - 110, event.clientY),
-                      left: Math.min(window.innerWidth - 180, event.clientX)
-                    })
-                  }}
-                />
-              ))}
-            </div>
+                      event.preventDefault()
+                      setContextMenu({
+                        boardId,
+                        top: Math.min(window.innerHeight - 110, event.clientY),
+                        left: Math.min(window.innerWidth - 180, event.clientX)
+                      })
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </SortableContext>
         </DndContext>
       </div>
@@ -676,7 +690,7 @@ export default function Sidebar({
 
       {isSettingsOpen && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Configurações">
-          <div className="relative flex min-h-[560px] max-h-[calc(100vh-32px)] w-full max-w-180 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
+          <div className="relative flex min-h-140 max-h-[calc(100vh-32px)] w-full max-w-180 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1e1e1e] p-5">
             <button
               type="button"
               onClick={() => setIsSettingsOpen(false)}
