@@ -187,6 +187,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   const [currentMemberId, setCurrentMemberId] = useState('')
   const [currentUserRole, setCurrentUserRole] = useState<GlobalUserRole>('member')
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false)
   const [openCardRequest, setOpenCardRequest] = useState<{ boardId: string; cardId: string; token: number } | null>(null)
   const [closeCardModalSignal, setCloseCardModalSignal] = useState(0)
   const [pendingSearchOpen, setPendingSearchOpen] = useState<{ boardId: string; cardId: string; cardTitle: string } | null>(null)
@@ -714,7 +715,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
   }, [navigateToBoard, pendingShareToken, queryClient])
 
   return (
-    <div className="grid h-screen grid-cols-1 grid-rows-[auto_1fr] bg-[#252525] lg:grid-cols-[253px_1fr] lg:grid-rows-[70px_1fr]">
+    <div className={`grid h-screen grid-cols-1 grid-rows-[auto_1fr] bg-[#252525] lg:grid-rows-[70px_1fr] ${isDesktopSidebarCollapsed ? 'lg:grid-cols-[0px_1fr]' : 'lg:grid-cols-[253px_1fr]'}`}>
       <div className="lg:col-span-2">
         <Header
           userEmail={userEmail}
@@ -789,6 +790,8 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         onMobileShareBoard={() => setShareBoardSignal((previous) => previous + 1)}
         mobileOpen={isMobileSidebarOpen}
         onMobileClose={() => setIsMobileSidebarOpen(false)}
+        isDesktopCollapsed={isDesktopSidebarCollapsed}
+        onToggleDesktopCollapsed={() => setIsDesktopSidebarCollapsed((previous) => !previous)}
       />
 
       <main className="min-w-0 overflow-hidden bg-[#252525]">

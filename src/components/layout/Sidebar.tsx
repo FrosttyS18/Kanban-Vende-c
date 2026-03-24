@@ -33,6 +33,8 @@ type SidebarProps = {
   onMobileShareBoard?: () => void
   mobileOpen?: boolean
   onMobileClose?: () => void
+  isDesktopCollapsed?: boolean
+  onToggleDesktopCollapsed?: () => void
 }
 
 const BOARD_TITLE_MAX_LENGTH = 150
@@ -123,7 +125,9 @@ export default function Sidebar({
   onMobileSelectSearchResult,
   onMobileShareBoard,
   mobileOpen = false,
-  onMobileClose
+  onMobileClose,
+  isDesktopCollapsed = false,
+  onToggleDesktopCollapsed
 }: SidebarProps) {
   const queryClient = useQueryClient()
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -137,7 +141,7 @@ export default function Sidebar({
   const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const isCollapsed = !mobileOpen && isDesktopCollapsed
   const menuRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
   const sensors = useSensors(
@@ -378,11 +382,11 @@ export default function Sidebar({
 
       {!mobileOpen && (
         <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-full">
-          <div className="relative flex h-28 w-9 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
-            <div className="absolute left-0 h-20 w-3 rounded-r-full bg-[#161719]" />
+          <div className="relative flex h-29 w-10 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
+            <div className="absolute -left-3 h-20 w-8 rounded-r-full border border-l-0 border-white/8 bg-[#1a1b1f]" />
             <button
               type="button"
-              onClick={() => setIsCollapsed(!isCollapsed)}
+              onClick={onToggleDesktopCollapsed}
               className="relative z-10 inline-flex size-8 items-center justify-center rounded-full text-[#d1d1d1] transition-colors duration-200 hover:bg-white/10 hover:text-white"
               aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
             >
@@ -927,6 +931,5 @@ export default function Sidebar({
     </>
   )
 }
-
 
 

@@ -287,7 +287,7 @@ export default function Board({
   }) => {
     const snapshot = storeRef.current
     const { table, eventType, new: newData, old: oldData } = event
-    const currentBoardId = snapshot.currentBoardId || activeBoardId
+    const currentBoardId = snapshot.currentBoardId
 
     if (table === 'cards') {
       if (eventType === 'UPDATE' && newData) {
@@ -1045,7 +1045,7 @@ export default function Board({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       unsubscribe()
     }
-  }, [activeBoardId, loadStore, realtimeSubscriptionVersion, showOperationError, store.currentMemberId])
+  }, [activeBoardId, applyRealtimeUpdate, loadStore, realtimeSubscriptionVersion, showOperationError, store.currentMemberId])
 
   const cardsByList = useMemo(() => {
     const map = new Map<string, CardData[]>()
@@ -2265,4 +2265,3 @@ export default function Board({
     </div>
   )
 }
-

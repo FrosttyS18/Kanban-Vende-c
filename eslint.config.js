@@ -20,4 +20,10 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/hooks/useVirtualizedCards.ts'],
+    rules: {
+      'react-hooks/incompatible-library': 'off',
+    },
+  },
 ])

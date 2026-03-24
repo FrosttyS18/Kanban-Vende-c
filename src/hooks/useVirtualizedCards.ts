@@ -1,5 +1,4 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useRef } from 'react'
 import { type CardData } from '@/types'
 
 const CARD_HEIGHT_ESTIMATE = 100
@@ -23,8 +22,6 @@ export function useVirtualizedCards({
   containerRef,
   enabled = true
 }: UseVirtualizedCardsOptions): UseVirtualizedCardsResult {
-  const scrollOffsetRef = useRef(0)
-
   const shouldVirtualize = enabled && cards.length > 15
 
   const rowVirtualizer = useVirtualizer({
@@ -34,13 +31,14 @@ export function useVirtualizedCards({
     overscan: CARD_OVERSCAN
   })
 
-  const getVirtualItems = rowVirtualizer.getVirtualItems
-  const virtualItems = shouldVirtualize ? getVirtualItems() : []
+  const activeScrollOffset = shouldVirtualize ? (rowVirtualizer.scrollOffset ?? 0) : 0
+  const totalSize = shouldVirtualize ? cards.length * CARD_HEIGHT_ESTIMATE : 0
+  const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : []
 
   return {
     virtualItems,
-    totalSize: rowVirtualizer.getTotalSize(),
-    scrollOffset: scrollOffsetRef.current,
+    totalSize,
+    scrollOffset: activeScrollOffset,
     isVirtualizationEnabled: shouldVirtualize
   }
 }
