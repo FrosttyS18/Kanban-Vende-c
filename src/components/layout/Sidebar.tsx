@@ -1,11 +1,12 @@
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, ChevronDown, ChevronRight, Crown, Lock, Plus, RotateCcw, Search, Settings2, Share2, SquareKanban, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Crown, Lock, Plus, RotateCcw, Search, Settings2, Share2, SquareKanban, Trash2, X } from 'lucide-react'
 import archivedIcon from '@/assets/icons/icon-arquivados.svg'
 import membersIcon from '@/assets/icons/icon-membros.svg'
+import { StatusToast } from '@/components/ui/status-toast'
 import { queryKeys } from '@/lib/queryKeys'
 import { deleteCardRemote, loadBoardStoreFromRemote, restoreArchivedCardRemote } from '@/services/boardApi'
 import { type ArchivedCardData, type BoardCatalogItem, type GlobalRoleUser, type GlobalUserRole, type SearchResultItem } from '@/types'
@@ -137,13 +138,13 @@ export default function Sidebar({
   const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsView, setSettingsView] = useState<SettingsView>('hub')
-  const [roleEmailDraft, setRoleEmailDraft] = useState('')
-  const [roleDraft, setRoleDraft] = useState<GlobalUserRole>('admin')
+  const [membersSearchQuery, setMembersSearchQuery] = useState('')
   const [settingsError, setSettingsError] = useState('')
-  const [settingsMessage, setSettingsMessage] = useState('')
+  const [settingsToastMessage, setSettingsToastMessage] = useState('')
   const isCollapsed = !mobileOpen && isDesktopCollapsed
   const menuRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  const settingsToastTimerRef = useRef<number | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 }
@@ -198,18 +199,44 @@ export default function Sidebar({
   const archivedCards: ArchivedCardData[] = archivedCardsQuery.data ?? []
   const isLoadingArchivedCards = archivedCardsQuery.isLoading
   const archivedCardsError = archivedCardsQuery.error instanceof Error ? archivedCardsQuery.error.message : null
+  const filteredGlobalRoleUsers = useMemo(() => {
+    const normalizedQuery = membersSearchQuery.trim().toLowerCase()
+
+    if (!normalizedQuery) {
+      return globalRoleUsers
+    }
+
+    return globalRoleUsers.filter((user) => {
+      const normalizedName = user.fullName.toLowerCase()
+      const normalizedEmail = user.email.toLowerCase()
+      return normalizedName.includes(normalizedQuery) || normalizedEmail.includes(normalizedQuery)
+    })
+  }, [globalRoleUsers, membersSearchQuery])
+
+  const showSettingsSuccessToast = useCallback((message: string) => {
+    setSettingsToastMessage(message)
+    if (settingsToastTimerRef.current) {
+      window.clearTimeout(settingsToastTimerRef.current)
+    }
+    settingsToastTimerRef.current = window.setTimeout(() => {
+      setSettingsToastMessage('')
+    }, 2200)
+  }, [])
 
   const openSettings = () => {
     setIsSettingsOpen(true)
     setSettingsView('hub')
+    setMembersSearchQuery('')
     setSettingsError('')
-    setSettingsMessage('')
+    setSettingsToastMessage('')
     void onRefreshGlobalRoles()
   }
 
   const openSettingsView = (view: SettingsView) => {
     setSettingsView(view)
+    setSettingsError('')
     if (view === 'members') {
+      setMembersSearchQuery('')
       void onRefreshGlobalRoles()
     }
   }
@@ -230,48 +257,20 @@ export default function Sidebar({
     }
   }
 
-  const handleApplyRoleByEmail = async () => {
-    if (!isAdmin) {
-      setSettingsError('Somente administradores podem alterar cargos globais.')
-      setSettingsMessage('')
-      return
-    }
-
-    const email = roleEmailDraft.trim().toLowerCase()
-    if (!email) {
-      setSettingsError('Informe um e-mail corporativo.')
-      setSettingsMessage('')
-      return
-    }
-
-    const result = await onSetGlobalRole(email, roleDraft)
-    if (!result.ok) {
-      setSettingsError(result.message)
-      setSettingsMessage('')
-      return
-    }
-
-    setRoleEmailDraft('')
-    setSettingsError('')
-    setSettingsMessage(result.message)
-  }
-
   const handleToggleGlobalRole = async (email: string, role: GlobalUserRole) => {
     if (!isAdmin) {
       setSettingsError('Somente administradores podem alterar cargos globais.')
-      setSettingsMessage('')
       return
     }
 
     const result = await onSetGlobalRole(email, role)
     if (result.ok) {
       setSettingsError('')
-      setSettingsMessage(result.message)
+      showSettingsSuccessToast(result.message)
       return
     }
 
     setSettingsError(result.message)
-    setSettingsMessage('')
   }
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -324,6 +323,14 @@ export default function Sidebar({
       window.removeEventListener('keydown', onEscape)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    return () => {
+      if (settingsToastTimerRef.current) {
+        window.clearTimeout(settingsToastTimerRef.current)
+      }
+    }
+  }, [])
 
   const closeMobileDrawer = useCallback(() => {
     onMobileClose?.()
@@ -763,53 +770,32 @@ export default function Sidebar({
                 )}
 
                 <div className="mt-5 rounded-xl border border-white/10 bg-[#242528] p-4">
-                  <p className="text-sm font-semibold text-white">Alterar cargo por e-mail</p>
-                  <div className="mt-3 flex flex-col gap-2 md:flex-row">
+                  <p className="text-sm font-semibold text-white">Pesquisar usuário</p>
+                  <div className="relative mt-3">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#a9a9a9]" />
                     <input
-                      value={roleEmailDraft}
+                      value={membersSearchQuery}
                       onChange={(event) => {
-                        setRoleEmailDraft(event.target.value)
+                        setMembersSearchQuery(event.target.value)
                         if (settingsError) {
                           setSettingsError('')
                         }
-                        if (settingsMessage) {
-                          setSettingsMessage('')
-                        }
                       }}
-                      placeholder="nome@vende-c.com"
-                      disabled={!isAdmin || isManagingRoles}
-                      className="h-10 w-full rounded-[7px] border border-white/20 bg-black px-3 text-sm text-white outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      placeholder="Buscar por nome ou e-mail"
+                      className="h-10 w-full rounded-[7px] border border-white/20 bg-black pl-9 pr-3 text-sm text-white outline-none focus:border-primary"
+                      aria-label="Buscar usuário por nome ou e-mail"
                     />
-                    <div className="relative">
-                      <select
-                        value={roleDraft}
-                        onChange={(event) => setRoleDraft(event.target.value as GlobalUserRole)}
-                        disabled={!isAdmin || isManagingRoles}
-                        className="h-10 w-full appearance-none rounded-[7px] border border-white/20 bg-black pl-3 pr-9 text-sm text-white outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="member">Member</option>
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#d1d1d1]" />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleApplyRoleByEmail()}
-                      disabled={!isAdmin || isManagingRoles}
-                      className="h-10 rounded-[7px] bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Aplicar
-                    </button>
                   </div>
                   {settingsError && <p className="mt-2 text-sm text-[#ff9ab8]">{settingsError}</p>}
-                  {settingsMessage && <p className="mt-2 text-sm text-[#86efac]">{settingsMessage}</p>}
                 </div>
 
                 <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-[#242528] p-2">
                   {globalRoleUsers.length === 0 ? (
                     <p className="px-2 py-3 text-sm text-[#bcbcbc]">Nenhum usuário encontrado.</p>
+                  ) : filteredGlobalRoleUsers.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-[#bcbcbc]">Nenhum usuário corresponde à sua pesquisa.</p>
                   ) : (
-                    globalRoleUsers.map((user) => {
+                    filteredGlobalRoleUsers.map((user) => {
                       const targetRole: GlobalUserRole = user.roleGlobal === 'admin' ? 'member' : 'admin'
                       return (
                         <div key={user.id} className="flex items-center gap-3 border-b border-white/10 px-2 py-3 last:border-b-0">
@@ -931,6 +917,7 @@ export default function Sidebar({
           </div>
         </div>
       )}
+      {settingsToastMessage && <StatusToast message={settingsToastMessage} />}
       </aside>
     </>
   )

@@ -16,6 +16,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { StatusToast } from '@/components/ui/status-toast'
 import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
 import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
@@ -2026,9 +2027,7 @@ export default function Board({
         </div>
       )}
       {operationSuccess && (
-        <div className="pointer-events-none fixed bottom-6 right-6 z-92 rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
-          {operationSuccess}
-        </div>
+        <StatusToast message={operationSuccess} className="z-92" />
       )}
       <DndContext
         sensors={sensors}

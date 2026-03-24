@@ -1,7 +1,8 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, Menu, Search, Trash2, UserRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { StatusToast } from '@/components/ui/status-toast'
 import Logo from '@/components/logo/Logo'
 import { type MemberNotification, type SearchResultItem, type SearchScope } from '@/types'
 
@@ -584,9 +585,7 @@ export default function Header({
         </div>
       </div>
       {notificationToastMessage && (
-        <div className="pointer-events-none fixed bottom-6 right-6 z-[90] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
-          {notificationToastMessage}
-        </div>
+        <StatusToast message={notificationToastMessage} className="z-90" />
       )}
     </header>
   )
