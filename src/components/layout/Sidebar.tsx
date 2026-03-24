@@ -369,28 +369,29 @@ export default function Sidebar({
         aria-modal={mobileOpen ? true : undefined}
         aria-label={mobileOpen ? 'Menu lateral de boards' : undefined}
         tabIndex={mobileOpen ? -1 : undefined}
-        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-all duration-300 ease-in-out ${
+        className={`relative border-r border-[#3d3d3d] bg-[#1e1e1e] transition-all duration-500 ease-out ${
           mobileOpen
             ? 'fixed inset-0 z-120 flex h-screen w-screen flex-col lg:static lg:z-auto lg:h-full lg:w-63.25'
-            : 'hidden h-full lg:flex lg:flex-col'
-        } ${!mobileOpen && isCollapsed ? 'lg:w-16' : ''}`}
+            : 'hidden h-full lg:flex lg:w-63.25 lg:flex-col'
+        } ${!mobileOpen && isCollapsed ? 'lg:w-0 lg:border-r-transparent' : ''}`}
       >
 
       {!mobileOpen && (
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className={`absolute top-1/2 z-50 -translate-y-1/2 rounded-r-full bg-[#1e1e1e] shadow-xl transition-all duration-300 ease-out hover:bg-[#2a2a2a] ${
-            isCollapsed
-              ? '-right-3 size-8 hover:size-9'
-              : 'right-0 w-6 hover:w-8'
-          }`}
-          aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-        >
-          <ArrowLeft className={`size-3 transition-transform duration-300 ease-out ${isCollapsed ? 'rotate-180' : ''}`} />
-        </button>
+        <div className="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-full">
+          <div className="relative flex h-28 w-9 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-[#1f2023] shadow-xl">
+            <div className="absolute left-0 h-20 w-3 rounded-r-full bg-[#161719]" />
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="relative z-10 inline-flex size-8 items-center justify-center rounded-full text-[#d1d1d1] transition-colors duration-200 hover:bg-white/10 hover:text-white"
+              aria-label={isCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+            >
+              <ArrowLeft className={`size-4 transition-transform duration-500 ease-out ${isCollapsed ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+        </div>
       )}
-      <div className={`min-h-0 flex-1 ${mobileOpen ? 'px-5 pb-4 pt-5' : isCollapsed ? 'px-3 pb-6 pt-7' : 'px-8 pb-6 pt-7'}`}>
+      <div className={`min-h-0 flex-1 transition-all duration-300 ${mobileOpen ? 'px-5 pb-4 pt-5' : 'px-8 pb-6 pt-7'} ${!mobileOpen && isCollapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100'}`}>
         {mobileOpen && (
           <>
             <div className="mb-5 flex items-center gap-4">
@@ -516,7 +517,7 @@ export default function Sidebar({
         </button>
       )}
 
-      <div className={`mt-auto border-t border-[#3d3d3d] ${mobileOpen ? 'px-5 py-4' : isCollapsed ? 'p-0' : 'px-8 py-5'}`}>
+      <div className={`mt-auto border-t border-[#3d3d3d] transition-all duration-300 ${mobileOpen ? 'px-5 py-4' : 'px-8 py-5'} ${!mobileOpen && isCollapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100'}`}>
         <button
           type="button"
           onClick={() => {
@@ -525,11 +526,11 @@ export default function Sidebar({
               closeMobileDrawer()
             }
           }}
-          className={`flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary ${mobileOpen ? 'w-full justify-center' : isCollapsed ? 'size-10 justify-center' : ''}`}
+          className={`flex items-center gap-2 text-[18px] font-semibold text-white transition-colors hover:text-primary ${mobileOpen ? 'w-full justify-center' : ''}`}
           aria-label="Configurações"
         >
           <Settings2 className="size-4 text-[#d1d1d1]" />
-          {!isCollapsed && 'Configurações'}
+          Configurações
         </button>
       </div>
 
@@ -926,7 +927,6 @@ export default function Sidebar({
     </>
   )
 }
-
 
 
 
