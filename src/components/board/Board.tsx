@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Plus, X } from 'lucide-react'
 import {
@@ -18,12 +18,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import Column from '@/components/board/Column'
 import Card from '@/components/board/Card'
-import ShareBoardModal from '@/components/board/ShareBoardModal'
 import { ACTIVITY_MESSAGES } from '@/constants/activityMessages'
 import { isAllowedCardActivityEvent } from '@/constants/activityEvents'
 import { queryKeys } from '@/lib/queryKeys'
 import { type BoardData, type BoardShareSettings, type BoardStore, type CardData, type CardActivityEventType, type ColumnData, type GlobalUserRole, type Label, type MemberNotification, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
+
+const ShareBoardModal = lazy(() => import('@/components/board/ShareBoardModal'))
 import {
   archiveCardRemote,
   clearLegacyBoardStorage,
@@ -1933,7 +1934,7 @@ export default function Board({
         </div>
       )}
       {operationSuccess && (
-        <div className="pointer-events-none fixed bottom-6 right-6 z-[92] rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
+        <div className="pointer-events-none fixed bottom-6 right-6 z-92 rounded-md border border-[#ff0068]/35 bg-[#1f1f21] px-3 py-2 text-xs font-medium text-[#ffd4e9] shadow-xl">
           {operationSuccess}
         </div>
       )}
@@ -2128,20 +2129,22 @@ export default function Board({
       )}
 
       {isShareBoardOpen && (
-        <ShareBoardModal
-          isOpen={isShareBoardOpen}
-          board={currentBoard}
-          members={store.members}
-          currentMemberId={store.currentMemberId}
-          ownerMemberId={ownerMemberId}
-          shareSettings={shareSettings}
-          onClose={() => setDismissedShareSignal(shareBoardSignal)}
-          onChange={updateShareSettings}
-        />
+        <Suspense fallback={null}>
+          <ShareBoardModal
+            isOpen={isShareBoardOpen}
+            board={currentBoard}
+            members={store.members}
+            currentMemberId={store.currentMemberId}
+            ownerMemberId={ownerMemberId}
+            shareSettings={shareSettings}
+            onClose={() => setDismissedShareSignal(shareBoardSignal)}
+            onChange={updateShareSettings}
+          />
+        </Suspense>
       )}
 
       {confirmContextAction && confirmContextActionConfig && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true" aria-label={confirmContextActionConfig.title}>
+        <div className="fixed inset-0 z-95 flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true" aria-label={confirmContextActionConfig.title}>
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1f1f21] p-5">
             <h3 className="text-lg font-semibold text-white">{confirmContextActionConfig.title}</h3>
             <p className="mt-2 text-sm text-[#d1d1d1]">{confirmContextActionConfig.description}</p>

@@ -56,7 +56,7 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
         </div>
       </section>
 
-      <section className="login-fade mx-auto flex w-full max-w-[565px] flex-col gap-4 rounded-[27px] border border-white/5 bg-[#141414] p-6 shadow-[0_24px_72px_rgba(0,0,0,0.6)] xl:hidden">
+      <section className="login-fade mx-auto flex w-full max-w-141.25 flex-col gap-4 rounded-[27px] border border-white/5 bg-[#141414] p-6 shadow-[0_24px_72px_rgba(0,0,0,0.6)] xl:hidden">
         <Logo className="login-enter login-delay-1 mx-auto h-[42.12px] w-[217.999px]" />
         <h1 className="login-enter login-delay-2 text-center text-[30px]/[1.1] font-bold tracking-[-0.02em]">Acesso ao Kaban do VENDE-C</h1>
         <p className="login-enter login-delay-3 text-center text-[16.368px] text-[#555555]">Entre com sua conta Google corporativa</p>
@@ -64,18 +64,18 @@ export default function LoginPage({ onLogin, loading, error, isConfigured }: Log
           type="button"
           onClick={onLogin}
           disabled={disabled}
-          className="login-enter login-delay-4 mt-3 flex h-[54px] w-full items-center justify-center gap-2 rounded-[9px] border border-[#3b3b3b] bg-black text-[18px] font-bold text-white transition-colors hover:border-[#ff0068] hover:bg-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-60"
+          className="login-enter login-delay-4 mt-3 flex h-13.5 w-full items-center justify-center gap-2 rounded-[9px] border border-[#3b3b3b] bg-black text-[18px] font-bold text-white transition-colors hover:border-[#ff0068] hover:bg-[#0d0d0d] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <img src={googleLogo} alt="" aria-hidden="true" className="h-[18px] w-[18px]" />
+          <img src={googleLogo} alt="" aria-hidden="true" className="h-4.5 w-4.5" />
           <span>{loading ? "Conectando..." : "Continuar com Google"}</span>
         </button>
         <p className="login-enter login-delay-5 mt-1 flex items-center justify-center gap-2 text-[16.368px] font-normal text-[#555555]">
-          <img src={shieldIcon} alt="" aria-hidden="true" className="h-[16px] w-[16px]" />
+          <img src={shieldIcon} alt="" aria-hidden="true" className="h-4 w-4" />
           <span>Acesso protegido por domínio corporativo</span>
         </p>
       </section>
 
-      <div className="mx-auto mt-4 w-full max-w-[932px] space-y-2">
+      <div className="mx-auto mt-4 w-full max-w-233 space-y-2">
         {!isConfigured && (
           <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-center text-sm text-red-300">
             Não foi possível iniciar o login no momento. Tente novamente mais tarde.

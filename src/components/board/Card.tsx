@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Archive, Clock3, Paperclip, Trash2, User } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import CardModal from './CardModal'
 import { type CardData, type Label, type Member, type RecordCardActivityInput } from '@/types'
+
+const CardModal = lazy(() => import('./CardModal'))
 
 type CardProps = {
   card: CardData
@@ -299,30 +300,32 @@ export default function Card({
       </article>
 
       {isModalVisible && !isOverlay && !disableModal && (
-        <CardModal
-          isOpen={isModalOpen || isRouteRequestOpen}
-          onClose={() => {
-            setIsModalOpen(false)
-            if (routeOpenToken !== null) {
-              setBlockedRouteToken(routeOpenToken)
-            }
-            onCloseModal?.(card.id)
-          }}
-          card={card}
-          listTitle={listTitle}
-          listOptions={listOptions}
-          availableLabels={availableLabels}
-          onUpdateAvailableLabels={onUpdateAvailableLabels}
-          members={boardMembers}
-          currentMemberId={currentMemberId}
-          boardId={boardId}
-          onRecordActivity={(input) => onRecordActivity?.(card.id, input)}
-          onMoveToList={(listId) => onUpdate?.(card.id, { listId })}
-          onUpdate={(updates) => onUpdate?.(card.id, updates)}
-          onDelete={onDelete ? () => onDelete(card.id) : undefined}
-          onArchive={onArchive ? () => onArchive(card.id) : undefined}
-          externalError={operationErrorMessage ?? null}
-        />
+        <Suspense fallback={null}>
+          <CardModal
+            isOpen={isModalOpen || isRouteRequestOpen}
+            onClose={() => {
+              setIsModalOpen(false)
+              if (routeOpenToken !== null) {
+                setBlockedRouteToken(routeOpenToken)
+              }
+              onCloseModal?.(card.id)
+            }}
+            card={card}
+            listTitle={listTitle}
+            listOptions={listOptions}
+            availableLabels={availableLabels}
+            onUpdateAvailableLabels={onUpdateAvailableLabels}
+            members={boardMembers}
+            currentMemberId={currentMemberId}
+            boardId={boardId}
+            onRecordActivity={(input) => onRecordActivity?.(card.id, input)}
+            onMoveToList={(listId) => onUpdate?.(card.id, { listId })}
+            onUpdate={(updates) => onUpdate?.(card.id, updates)}
+            onDelete={onDelete ? () => onDelete(card.id) : undefined}
+            onArchive={onArchive ? () => onArchive(card.id) : undefined}
+            externalError={operationErrorMessage ?? null}
+          />
+        </Suspense>
       )}
 
       {contextMenu &&

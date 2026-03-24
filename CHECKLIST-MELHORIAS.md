@@ -177,7 +177,7 @@
 - [ ] Adicionar testes E2E com Playwright
 
 ### Fase 3 - Enhancement (Semanas 4-6)
-- [ ] Lazy loading de componentes
+- [x] Lazy loading de componentes (CardModal, ShareBoardModal)
 - [ ] Aprimorar acessibilidade
 - [ ] Empty states e tooltips
 
