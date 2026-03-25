@@ -808,6 +808,7 @@ export default function BoardPage({ userEmail, onLogout, isLogoutLoading = false
         )}
 
         <Board
+          key={selectedBoardId || 'board-root'}
           createBoardSignal={createBoardSignal}
           shareBoardSignal={shareBoardSignal}
           externalReloadSignal={boardReloadKey}
