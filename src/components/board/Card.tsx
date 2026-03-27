@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Archive, Clock3, Paperclip, Trash2, User } from 'lucide-react'
+import { Archive, Clock3, Copy, Paperclip, Trash2, User } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { type CardData, type Label, type Member, type RecordCardActivityInput } from '@/types'
@@ -22,6 +22,7 @@ type CardProps = {
   onOpenModal?: (cardId: string) => void
   onCloseModal?: (cardId: string) => void
   onDelete?: (id: string) => void
+  onDuplicate?: (id: string) => void
   onArchive?: (id: string) => void
   onUpdate?: (id: string, data: Partial<CardData>) => void
   isOverlay?: boolean
@@ -131,6 +132,7 @@ export default function Card({
   onOpenModal,
   onCloseModal,
   onDelete,
+  onDuplicate,
   onArchive,
   onUpdate,
   isOverlay = false,
@@ -333,6 +335,21 @@ export default function Card({
           <>
             <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
             <div ref={menuRef} style={{ top: contextMenu.y, left: contextMenu.x }} className="fixed z-50 w-48 rounded-md border border-white/10 bg-[#282e33] p-1 shadow-xl">
+              {onDuplicate && (
+                <button
+                  onClick={() => {
+                    onDuplicate(card.id)
+                    setContextMenu(null)
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-gray-300 hover:bg-white/10 hover:text-white"
+                >
+                  <Copy className="size-4" />
+                  Duplicar cartão
+                </button>
+              )}
+
+              {onDuplicate && (onArchive || onDelete) && <div className="my-1 h-px bg-white/10" />}
+
               {onArchive && (
                 <button
                   onClick={() => {
@@ -361,7 +378,7 @@ export default function Card({
                 </button>
               )}
 
-              {!onDelete && !onArchive && (
+              {!onDelete && !onArchive && !onDuplicate && (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
                   <User className="size-3" />
                   Sem ações disponíveis

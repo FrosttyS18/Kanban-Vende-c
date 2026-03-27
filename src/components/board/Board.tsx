@@ -81,6 +81,7 @@ type ContextConfirmAction = {
 }
 
 const BOARD_CANVAS_PAN_LOCK_SELECTOR = 'button,input,textarea,select,option,a,label,summary,[role="button"],[contenteditable="true"],[data-board-pan-lock="true"]'
+const DUPLICATED_CARD_TITLE_PREFIX = 'Cópia de '
 
 const LIST_TITLE_MAX_LENGTH = 150
 const BOARD_COLOR_OPTIONS = [
@@ -179,6 +180,42 @@ function getBoardColumns(snapshot: BoardStore, boardId: string): ColumnData[] {
 function getBoardCards(snapshot: BoardStore, boardColumns: ColumnData[]): CardData[] {
   const boardListIds = new Set(boardColumns.map((column) => column.id))
   return snapshot.cards.filter((card) => boardListIds.has(card.listId))
+}
+
+function buildDuplicatedCard(sourceCard: CardData): CardData {
+  const nowIso = new Date().toISOString()
+  const nextTitle = sourceCard.title.startsWith(DUPLICATED_CARD_TITLE_PREFIX)
+    ? sourceCard.title
+    : `${DUPLICATED_CARD_TITLE_PREFIX}${sourceCard.title}`
+
+  return {
+    id: createId('card'),
+    listId: sourceCard.listId,
+    title: nextTitle,
+    description: sourceCard.description,
+    labels: sourceCard.labels.map((label) => ({ ...label })),
+    memberIds: [...sourceCard.memberIds],
+    isCompleted: false,
+    checklists: sourceCard.checklists.map((checklist) => ({
+      id: createId('checklist'),
+      title: checklist.title,
+      items: checklist.items.map((item) => ({
+        id: createId('checkitem'),
+        content: item.content,
+        isDone: false
+      }))
+    })),
+    links: sourceCard.links.map((link) => ({
+      id: createId('link'),
+      title: link.title,
+      url: link.url,
+      type: link.type,
+      createdAt: nowIso
+    })),
+    activities: [],
+    createdAt: nowIso,
+    updatedAt: nowIso
+  }
 }
 
 function hasCardLayoutChanged(previousCards: CardData[], nextCards: CardData[]): boolean {
@@ -1337,6 +1374,63 @@ export default function Board({
       })
   }
 
+  const duplicateCardInList = (cardId: string) => {
+    const snapshot = storeRef.current
+    const sourceCard = snapshot.cards.find((card) => card.id === cardId)
+    if (!sourceCard) {
+      showOperationError('Não foi possível localizar o cartão para duplicar.')
+      return
+    }
+
+    const boardColumns = getBoardColumns(snapshot, activeBoardId)
+    const boardListIds = new Set(boardColumns.map((column) => column.id))
+    if (!boardListIds.has(sourceCard.listId)) {
+      showOperationError('Não foi possível duplicar o cartão nesta lista.')
+      return
+    }
+
+    const sourceIndex = snapshot.cards.findIndex((card) => card.id === cardId)
+    if (sourceIndex === -1) {
+      showOperationError('Não foi possível duplicar o cartão.')
+      return
+    }
+
+    const sourceListTitle = boardColumns.find((column) => column.id === sourceCard.listId)?.title ?? 'Lista'
+    const duplicatedCard = buildDuplicatedCard(sourceCard)
+    const nextCardsPayload = [...snapshot.cards]
+    nextCardsPayload.splice(sourceIndex + 1, 0, duplicatedCard)
+
+    applyStore({
+      ...snapshot,
+      cards: nextCardsPayload
+    })
+
+    void runMutation(createCardMutation, {
+      boardId: activeBoardId,
+      card: duplicatedCard
+    }, {
+      action: 'duplicate_card_create',
+      boardId: activeBoardId,
+      resourceId: duplicatedCard.id,
+      rollback: () => applyStore(snapshot),
+      onSuccess: () => {
+        recordActivity(duplicatedCard.id, 'card_created', ACTIVITY_MESSAGES.cardCreatedInList(sourceListTitle))
+        showOperationSuccess('Cartão duplicado com sucesso.')
+      }
+    })
+
+    const boardCardsToSync = nextCardsPayload.filter((card) => boardListIds.has(card.listId))
+    void runMutation(syncCardsOrderingMutation, {
+      boardId: activeBoardId,
+      columns: boardColumns,
+      cards: boardCardsToSync
+    }, {
+      action: 'duplicate_card_sync_order',
+      boardId: activeBoardId,
+      rollback: () => applyStore(snapshot)
+    })
+  }
+
   const deleteCard = async (cardId: string) => {
     const snapshot = storeRef.current
     applyStore({
@@ -2117,6 +2211,7 @@ export default function Board({
                   onAddCard={addCardToList}
                   onUpdateCard={updateCardInStore}
                   onDeleteCard={requestDeleteCard}
+                  onDuplicateCard={duplicateCardInList}
                   onArchiveCard={requestArchiveCard}
                   availableLabels={availableLabels}
                   onUpdateAvailableLabels={updateAvailableLabels}
@@ -2195,6 +2290,7 @@ export default function Board({
                 onAddCard={() => undefined}
                 onUpdateCard={() => undefined}
                 onDeleteCard={() => undefined}
+                onDuplicateCard={() => undefined}
                 onArchiveCard={() => undefined}
                 availableLabels={availableLabels}
                 onUpdateAvailableLabels={() => undefined}
@@ -2222,6 +2318,7 @@ export default function Board({
                 onRecordActivity={handleRecordCardActivity}
                 onUpdate={updateCardInStore}
                 onDelete={requestDeleteCard}
+                onDuplicate={duplicateCardInList}
                 onArchive={requestArchiveCard}
                 isOverlay
                 disableModal

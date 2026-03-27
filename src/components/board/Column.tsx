@@ -19,6 +19,7 @@ type Props = {
   onAddCard: (columnId: string, title: string, placement: 'top' | 'bottom') => void
   onUpdateCard: (id: string, data: Partial<CardData>) => void
   onDeleteCard: (id: string) => void
+  onDuplicateCard: (id: string) => void
   onArchiveCard: (id: string) => void
   availableLabels: Label[]
   onUpdateAvailableLabels: (labels: Label[]) => void
@@ -80,6 +81,7 @@ export default function Column({
   onAddCard,
   onUpdateCard,
   onDeleteCard,
+  onDuplicateCard,
   onArchiveCard,
   availableLabels,
   onUpdateAvailableLabels,
@@ -191,6 +193,7 @@ export default function Column({
       onCloseModal={onCardClose}
       onUpdate={onUpdateCard}
       onDelete={onDeleteCard}
+      onDuplicate={onDuplicateCard}
       onArchive={onArchiveCard}
       isOverlay={isOverlay}
       disableModal={isOverlay}
