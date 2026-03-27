@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Plus, X } from 'lucide-react'
 import {
@@ -79,6 +79,8 @@ type ContextConfirmAction = {
   targetId: string
   targetTitle: string
 }
+
+const BOARD_CANVAS_PAN_LOCK_SELECTOR = 'button,input,textarea,select,option,a,label,summary,[role="button"],[contenteditable="true"],[data-board-pan-lock="true"]'
 
 const LIST_TITLE_MAX_LENGTH = 150
 const BOARD_COLOR_OPTIONS = [
@@ -249,12 +251,16 @@ export default function Board({
   const [newListTitle, setNewListTitle] = useState('')
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null)
+  const [isCanvasDragging, setIsCanvasDragging] = useState(false)
 
   const [newBoardTitle, setNewBoardTitle] = useState('')
   const [newBoardColor, setNewBoardColor] = useState('#ff0068')
   const [dismissedCreateSignal, setDismissedCreateSignal] = useState(createBoardSignal)
   const [dismissedShareSignal, setDismissedShareSignal] = useState(shareBoardSignal)
   const boardInteractionRef = useRef<HTMLDivElement | null>(null)
+  const canvasDragPointerIdRef = useRef<number | null>(null)
+  const canvasDragStartXRef = useRef(0)
+  const canvasDragStartScrollLeftRef = useRef(0)
   const realtimeDebounceTimerRef = useRef<number | null>(null)
   const pendingRealtimeRefreshRef = useRef(false)
   const isRealtimeRefreshingRef = useRef(false)
@@ -279,6 +285,60 @@ export default function Board({
     storeRef.current = nextStore
     setStore(nextStore)
   }, [])
+
+  const stopCanvasDrag = useCallback(() => {
+    setIsCanvasDragging(false)
+    canvasDragPointerIdRef.current = null
+  }, [])
+
+  const handleBoardCanvasPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0 || activeCardId || activeColumnId) {
+      return
+    }
+
+    const target = event.target
+    const currentTarget = event.currentTarget
+    if (target instanceof Element) {
+      if (target.closest(BOARD_CANVAS_PAN_LOCK_SELECTOR)) {
+        return
+      }
+
+      if (target !== currentTarget && !target.closest('[data-board-pan-surface="true"]')) {
+        return
+      }
+    }
+
+    if (currentTarget.scrollWidth <= currentTarget.clientWidth) {
+      return
+    }
+
+    canvasDragPointerIdRef.current = event.pointerId
+    canvasDragStartXRef.current = event.clientX
+    canvasDragStartScrollLeftRef.current = currentTarget.scrollLeft
+    setIsCanvasDragging(true)
+    currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  }, [activeCardId, activeColumnId])
+
+  const handleBoardCanvasPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isCanvasDragging || canvasDragPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    const deltaX = event.clientX - canvasDragStartXRef.current
+    event.currentTarget.scrollLeft = canvasDragStartScrollLeftRef.current - deltaX
+  }, [isCanvasDragging])
+
+  const handleBoardCanvasPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (canvasDragPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    stopCanvasDrag()
+  }, [stopCanvasDrag])
 
   const applyRealtimeUpdate = useCallback((event: {
     table: string
@@ -2036,8 +2096,16 @@ export default function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div ref={boardInteractionRef} className="h-full w-full overflow-x-auto">
-          <div className="flex min-w-max items-start gap-4 px-6 py-6">
+        <div
+          ref={boardInteractionRef}
+          className={`h-full w-full overflow-x-auto ${isCanvasDragging ? 'select-none' : ''}`}
+          onPointerDown={handleBoardCanvasPointerDown}
+          onPointerMove={handleBoardCanvasPointerMove}
+          onPointerUp={handleBoardCanvasPointerUp}
+          onPointerCancel={stopCanvasDrag}
+          onLostPointerCapture={stopCanvasDrag}
+        >
+          <div data-board-pan-surface="true" className="flex min-w-max items-start gap-4 px-6 py-6">
             <SortableContext items={currentColumnIds} strategy={horizontalListSortingStrategy}>
               {currentColumns.map((column) => (
                 <Column
@@ -2066,7 +2134,7 @@ export default function Board({
               ))}
             </SortableContext>
 
-            <div className="w-68.25 shrink-0">
+            <div data-board-pan-lock="true" className="w-68.25 shrink-0">
               {!isAddingList ? (
                 <Button
                   onClick={() => setIsAddingList(true)}

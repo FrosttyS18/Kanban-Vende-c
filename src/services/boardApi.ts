@@ -444,16 +444,23 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string, options?: { f
   const currentUser = await ensureCurrentProfile({ forceRefresh: options?.forceProfileRefresh })
   const currentUserId = currentUser.id
   const profileLastBoardId = currentUser.lastBoardId?.trim() ?? ''
+  const isGlobalAdmin = currentUser.roleGlobal === 'admin'
 
-  const { data: ownedBoardsRaw, error: ownedBoardsError } = await supabase
-    .from('boards')
-    .select('id,title,color,owner_id,position,created_at,updated_at')
-    .eq('owner_id', currentUserId)
-    .order('position', { ascending: true })
-    .order('created_at', { ascending: true })
+  const { data: directBoardsRaw, error: directBoardsError } = isGlobalAdmin
+    ? await supabase
+        .from('boards')
+        .select('id,title,color,owner_id,position,created_at,updated_at')
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: true })
+    : await supabase
+        .from('boards')
+        .select('id,title,color,owner_id,position,created_at,updated_at')
+        .eq('owner_id', currentUserId)
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: true })
 
-  if (ownedBoardsError) {
-    throw new Error(ownedBoardsError.message)
+  if (directBoardsError) {
+    throw new Error(directBoardsError.message)
   }
 
   const { data: boardMembershipRowsRaw, error: membershipsError } = await supabase
@@ -468,7 +475,7 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string, options?: { f
   const membershipBoardIds = (boardMembershipRowsRaw as BoardMemberRow[] | null)?.map((row) => row.board_id) ?? []
 
   const { data: memberBoardsRaw, error: memberBoardsError } =
-    membershipBoardIds.length > 0
+    !isGlobalAdmin && membershipBoardIds.length > 0
       ? await supabase
           .from('boards')
           .select('id,title,color,owner_id,position,created_at,updated_at')
@@ -482,7 +489,7 @@ async function fetchBoardStoreFromRemote(selectedBoardId?: string, options?: { f
   }
 
   const boardsMap = new Map<string, BoardRow>()
-  ;((ownedBoardsRaw as BoardRow[] | null) ?? []).forEach((row) => boardsMap.set(row.id, row))
+  ;((directBoardsRaw as BoardRow[] | null) ?? []).forEach((row) => boardsMap.set(row.id, row))
   ;((memberBoardsRaw as BoardRow[] | null) ?? []).forEach((row) => boardsMap.set(row.id, row))
   const boardRows = Array.from(boardsMap.values()).sort((a, b) => (a.position - b.position) || a.created_at.localeCompare(b.created_at))
 

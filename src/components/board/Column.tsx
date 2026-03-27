@@ -203,7 +203,7 @@ export default function Column({
   }
 
   return (
-    <section ref={setNodeRef} style={style} className="flex max-h-[calc(100vh-140px)] w-68.25 shrink-0 flex-col rounded-2xl bg-[#101204]">
+    <section ref={setNodeRef} style={style} data-board-pan-lock="true" className="flex max-h-[calc(100vh-140px)] w-68.25 shrink-0 flex-col rounded-2xl bg-[#101204]">
       <header {...attributes} {...listeners} className="group flex cursor-grab items-center justify-between px-4 pb-3 pt-3 active:cursor-grabbing">
         {isEditingTitle ? (
           <Input

@@ -121,6 +121,43 @@ function normalizeIsoMinute(value?: string): string {
   return date.toISOString()
 }
 
+function buildLocalDueDate(dateInput: string, timeInput: string): Date | null {
+  const normalizedDate = dateInput.trim()
+  if (!normalizedDate) {
+    return null
+  }
+
+  const [yearRaw, monthRaw, dayRaw] = normalizedDate.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null
+  }
+
+  let hours = 12
+  let minutes = 0
+
+  const normalizedTime = timeInput.trim()
+  if (normalizedTime) {
+    const [hoursRaw, minutesRaw] = normalizedTime.split(':')
+    hours = Number(hoursRaw)
+    minutes = Number(minutesRaw)
+
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+      return null
+    }
+  }
+
+  const date = new Date(year, month - 1, day, hours, minutes, 0, 0)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date
+}
+
 function getDueStatus(dueDate?: string, isCompleted?: boolean): { label: string; className: string } | null {
   if (!dueDate) {
     return null
@@ -1117,9 +1154,8 @@ export default function CardModal({
       return
     }
 
-    const value = dueTimeInput ? `${dueDateInput}T${dueTimeInput}:00` : dueDateInput
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) {
+    const parsed = buildLocalDueDate(dueDateInput, dueTimeInput)
+    if (!parsed) {
       return
     }
 
@@ -1353,10 +1389,10 @@ export default function CardModal({
               event.stopPropagation()
               onClose()
             }}
-            className="flex h-7 w-7 items-center justify-center rounded-full text-[#d1d1d1] hover:bg-white/10"
-            aria-label="Fechar"
+            className="inline-flex h-9 min-w-14 items-center justify-center rounded-xl border border-white/10 bg-white/6 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+            aria-label="OK"
           >
-            <CloseIcon />
+            OK
           </button>
         </header>
 
@@ -1845,5 +1881,3 @@ export default function CardModal({
     </>
   )
 }
-
-
