@@ -3,6 +3,7 @@ import { type CardData } from '@/types'
 
 const CARD_HEIGHT_ESTIMATE = 100
 const CARD_OVERSCAN = 3
+const CARD_VERTICAL_GAP = 8
 
 type UseVirtualizedCardsOptions = {
   cards: CardData[]
@@ -15,6 +16,7 @@ type UseVirtualizedCardsResult = {
   totalSize: number
   scrollOffset: number
   isVirtualizationEnabled: boolean
+  measureElement: (element: HTMLDivElement | null) => void
 }
 
 export function useVirtualizedCards({
@@ -27,18 +29,19 @@ export function useVirtualizedCards({
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? cards.length : 0,
     getScrollElement: () => containerRef.current,
-    estimateSize: () => CARD_HEIGHT_ESTIMATE,
+    estimateSize: () => CARD_HEIGHT_ESTIMATE + CARD_VERTICAL_GAP,
     overscan: CARD_OVERSCAN
   })
 
   const activeScrollOffset = shouldVirtualize ? (rowVirtualizer.scrollOffset ?? 0) : 0
-  const totalSize = shouldVirtualize ? cards.length * CARD_HEIGHT_ESTIMATE : 0
+  const totalSize = shouldVirtualize ? rowVirtualizer.getTotalSize() : 0
   const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : []
 
   return {
     virtualItems,
     totalSize,
     scrollOffset: activeScrollOffset,
-    isVirtualizationEnabled: shouldVirtualize
+    isVirtualizationEnabled: shouldVirtualize,
+    measureElement: shouldVirtualize ? rowVirtualizer.measureElement : () => undefined
   }
 }

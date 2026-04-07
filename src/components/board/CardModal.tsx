@@ -1,4 +1,5 @@
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link2, MessageSquareText } from 'lucide-react'
 import { type Activity, type CardActivityEventType, type CardData, type Checklist, type ChecklistItem, type Label, type LinkAttachment, type Member, type RecordCardActivityInput } from '@/types'
 import { createId } from '@/utils/createId'
@@ -1344,7 +1345,7 @@ export default function CardModal({
   const currentList = listOptions.find((item) => item.id === cardState.listId)?.title ?? listTitle
   const timeline = cardState.activities
 
-  return (
+  return createPortal(
     <>
       <style>{'@keyframes link-field-shake { 0% { transform: translateX(0); } 25% { transform: translateX(-5px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-4px); } 100% { transform: translateX(0); } }'}</style>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={'Detalhes do cartão'}>
@@ -1878,6 +1879,7 @@ export default function CardModal({
         </div>
       </div>
       </div>
-    </>
+    </>,
+    document.body
   )
 }

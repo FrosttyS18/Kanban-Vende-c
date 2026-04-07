@@ -113,7 +113,7 @@ export default function Column({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  const { virtualItems, totalSize, isVirtualizationEnabled } = useVirtualizedCards({
+  const { virtualItems, totalSize, isVirtualizationEnabled, measureElement } = useVirtualizedCards({
     cards,
     containerRef: scrollContainerRef,
     enabled: !isOverlay
@@ -301,6 +301,9 @@ export default function Column({
                 return (
                   <div
                     key={card.id}
+                    ref={measureElement}
+                    data-index={virtualRow.index}
+                    className="pb-2"
                     style={{
                       position: 'absolute',
                       top: 0,
